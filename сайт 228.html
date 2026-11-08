@@ -1179,7 +1179,7 @@ function renderGrid(filter) {
   const gr = document.getElementById('grid');
   if (!gr) return;
   gr.innerHTML = PROJECTS.filter(p => filter === '*' || p.cat === filter).map(p => `
-    <div class="work-card rv in" onclick="openGallery('${p.id}')">
+    <div class="work-card rv in" data-proj-id="${p.id}" onclick="openGallery('${p.id}')">
       <div class="work-img-box">
         <img src="${p.hero}" alt="${p.title}" loading="lazy">
         <div class="work-badge-count">📷 ${p.count} ракурсов</div>
@@ -1286,61 +1286,298 @@ if (glWrap) {
 const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}}),{threshold:.15});
 document.querySelectorAll('.rv').forEach(e=>io.observe(e));
 
-// ===== ВИЗУАЛЬНЫЙ РЕДАКТОР ТЕКСТА ДЛЯ ЗАКАЗЧИКА (БЕЗ ПРОГРАММИРОВАНИЯ) =====
+// ===== ПОЛНОЦЕННЫЙ ВИЗУАЛЬНЫЙ РЕДАКТОР САЙТА ДЛЯ ЗАКАЗЧИКА (ТЕКСТ + ФОТО + ПОЗИЦИЯ) =====
 (function(){
-  let editMode = location.search.includes('edit=1') || location.hash === '#edit';
-  let fClicks = 0, fTimer = null;
+  let isEditActive = location.search.includes('edit=1') || location.hash === '#edit' || sessionStorage.getItem('status_cms_edit') === '1';
+  let fClicks = 0, fTimer = null, selectedEl = null, selectedImg = null;
+
   const ftr = document.querySelector('footer span');
   if (ftr) {
     ftr.style.cursor = 'pointer';
-    ftr.title = 'Нажмите 5 раз подряд для включения режима редактирования текста';
+    ftr.title = 'Нажмите 5 раз подряд для включения режима конструктора сайта';
     ftr.addEventListener('click', () => {
       fClicks++;
       clearTimeout(fTimer);
-      fTimer = setTimeout(() => { fClicks = 0; }, 1200);
-      if (fClicks >= 5) { fClicks = 0; enableVisualEditor(); }
+      fTimer = setTimeout(() => { fClicks = 0; }, 1400);
+      if (fClicks >= 5) { fClicks = 0; enableStudioEditor(); }
     });
   }
-  function enableVisualEditor() {
-    if (document.getElementById('cms-bar')) return;
-    const editableSelectors = 'h1, h2, h3, p, small, em, .badge-gift, .contact-item b, .contact-item span, .logo, .h-pill, footer span';
-    document.querySelectorAll(editableSelectors).forEach(el => {
-      if (!el.closest('#cms-bar')) {
-        el.contentEditable = 'true';
-        el.style.outline = '1px dashed rgba(70,122,113,.6)';
-        el.style.outlineOffset = '3px';
+
+  const EDITABLE_SEL = 'h1, h2, h3, h4, p, small, em, .badge-gift, .contact-item b, .contact-item span, .logo, .h-pill, .work-tag, .work-badge-count, .work-details span.more, .gl-title, #gl-desc, .wz-q, .wz-brand, .wz-desc, .btn, footer span';
+
+  function applyEditableToPage() {
+    if (!isEditActive) return;
+    document.querySelectorAll(EDITABLE_SEL).forEach(el => {
+      if (el.closest('#cms-studio-bar') || el.closest('#cms-img-overlay')) return;
+      if (el.getAttribute('contenteditable') !== 'true') {
+        el.setAttribute('contenteditable', 'true');
+        el.classList.add('cms-editable-item');
       }
     });
+    document.querySelectorAll('img').forEach(img => {
+      if (img.closest('#cms-studio-bar') || img.id === 'v1' || img.id === 'v2') return;
+      img.classList.add('cms-editable-img');
+      img.title = 'Нажмите в режиме редактора, чтобы заменить это фото';
+    });
+  }
+
+  function syncEditsToDataArrays() {
+    // 1. Синхронизируем текущий вариант консультации
+    if (typeof shownSub === 'number' && shownSub >= 0 && cDesc && CONSULT_TXT[shownSub] !== undefined) {
+      CONSULT_TXT[shownSub] = cDesc.textContent.trim();
+    }
+    // 2. Синхронизируем карточки портфолио с массивом PROJECTS
+    document.querySelectorAll('.work-card[data-proj-id]').forEach(card => {
+      const pid = card.getAttribute('data-proj-id');
+      const proj = PROJECTS.find(p => p.id === pid);
+      if (!proj) return;
+      const h3 = card.querySelector('.work-details h3');
+      const p = card.querySelector('.work-details p');
+      const tag = card.querySelector('.work-tag');
+      const img = card.querySelector('.work-img-box img');
+      if (h3) proj.title = h3.textContent.trim();
+      if (p) proj.desc = p.textContent.trim();
+      if (tag) proj.tag = tag.textContent.trim();
+      if (img && img.getAttribute('src')) proj.hero = img.getAttribute('src');
+    });
+    // 3. Если открыта галерея проекта, синхронизируем заголовок, описание и текущий ракурс
+    const glModal = document.getElementById('gallery-modal');
+    if (glModal && glModal.classList.contains('open') && curProj) {
+      const glTitle = document.getElementById('gl-title');
+      const glDesc = document.getElementById('gl-desc');
+      const glMainImg = document.getElementById('gl-main-img');
+      if (glTitle) curProj.title = glTitle.textContent.trim();
+      if (glDesc) curProj.desc = glDesc.textContent.trim();
+      if (glMainImg && glMainImg.getAttribute('src')) {
+        curProj.angles[curAngleIdx] = glMainImg.getAttribute('src');
+      }
+    }
+  }
+
+  function readAndCompressImage(file, maxW, quality, cb) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxW / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+        const cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        const ctx = cv.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        cb(cv.toDataURL('image/jpeg', quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function enableStudioEditor() {
+    isEditActive = true;
+    sessionStorage.setItem('status_cms_edit', '1');
+    if (document.getElementById('cms-studio-bar')) return;
+
+    // Инжектируем стили редактора
+    const st = document.createElement('style');
+    st.id = 'cms-studio-style';
+    st.textContent = `
+      .cms-editable-item { outline: 1px dashed rgba(70,122,113,.65) !important; outline-offset: 3px !important; transition: outline-color .15s; cursor: text !important; }
+      .cms-editable-item:focus, .cms-selected-el { outline: 2px solid #22c55e !important; background: rgba(34,197,94,.06); }
+      .cms-editable-img { outline: 2px dashed #18A0FB !important; outline-offset: -2px !important; cursor: pointer !important; transition: filter .2s, outline .2s; }
+      .cms-editable-img:hover { filter: brightness(1.12); outline: 3px solid #22c55e !important; }
+      #cms-studio-bar { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 99999; background: rgba(12,18,15,.97); border: 2px solid #467A71; border-radius: 20px; padding: 10px 14px; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 20px 60px rgba(0,0,0,.92); font: 600 12.5px Inter, sans-serif; color: #fff; max-width: 96vw; backdrop-filter: blur(12px); }
+      #cms-studio-bar .cms-grp { display: flex; align-items: center; gap: 4px; background: #16211c; padding: 4px 8px; border-radius: 12px; border: 1px solid #ffffff1a; }
+      #cms-studio-bar button { background: #1e2d26; color: #fff; border: 1px solid #ffffff24; border-radius: 8px; padding: 6px 10px; font: 600 12px Inter, sans-serif; cursor: pointer; transition: .15s; }
+      #cms-studio-bar button:hover { background: #467A71; border-color: #467A71; }
+      #cms-studio-bar button.cms-primary { background: #22c55e; border-color: #22c55e; color: #051b0d; font-weight: 700; padding: 7px 14px; }
+      #cms-studio-bar button.cms-photo-btn { background: #18A0FB; border-color: #18A0FB; color: #fff; font-weight: 700; }
+      #cms-studio-bar .cms-lbl { font-size: 11px; color: #9AA7A1; margin-right: 4px; }
+    `;
+    document.head.appendChild(st);
+
     const bar = document.createElement('div');
-    bar.id = 'cms-bar';
-    bar.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:9999;background:#0e1412;border:2px solid #467A71;border-radius:99px;padding:10px 20px;display:flex;align-items:center;gap:12px;box-shadow:0 16px 50px rgba(0,0,0,.85);font:600 13px Inter,sans-serif;color:#fff;';
-    bar.innerHTML = '<span>✏️ Режим редактирования: кликните на любой текст и измените его</span><button type="button" id="cms-save" style="background:#467A71;color:#fff;border:none;border-radius:99px;padding:8px 16px;font:700 13px Inter,sans-serif;cursor:pointer;">💾 Скачать готовый index.html</button><button type="button" id="cms-exit" style="background:none;color:#9AA7A1;border:1px solid #ffffff33;border-radius:99px;padding:8px 12px;font:600 12px Inter,sans-serif;cursor:pointer;">✕</button>';
+    bar.id = 'cms-studio-bar';
+    bar.innerHTML = `
+      <div class="cms-grp" title="Выберите любой текст и выровняйте его">
+        <span class="cms-lbl">Выравнивание:</span>
+        <button type="button" data-act="align-left" title="По левому краю">⬅</button>
+        <button type="button" data-act="align-center" title="По центру">↔</button>
+        <button type="button" data-act="align-right" title="По правому краю">➡</button>
+      </div>
+      <div class="cms-grp" title="Сдвинуть выбранный текст или блок в любую сторону">
+        <span class="cms-lbl">Двигать текст:</span>
+        <button type="button" data-act="move-up" title="Сдвинуть выше">↑</button>
+        <button type="button" data-act="move-down" title="Сдвинуть ниже">↓</button>
+        <button type="button" data-act="move-left" title="Сдвинуть влево">←</button>
+        <button type="button" data-act="move-right" title="Сдвинуть вправо">→</button>
+        <button type="button" data-act="move-reset" title="Сбросить сдвиг">⟲</button>
+      </div>
+      <div class="cms-grp" title="Изменить размер шрифта выбранного текста">
+        <span class="cms-lbl">Шрифт:</span>
+        <button type="button" data-act="font-dec" title="Уменьшить шрифт">A−</button>
+        <button type="button" data-act="font-inc" title="Увеличить шрифт">A+</button>
+      </div>
+      <div class="cms-grp">
+        <button type="button" class="cms-photo-btn" id="cms-btn-change-photo" title="Нажмите сюда или на любое фото на странице, чтобы заменить картинку">📷 Заменить фото</button>
+        <input type="file" id="cms-file-input" accept="image/*" style="display:none">
+      </div>
+      <div class="cms-grp">
+        <button type="button" class="cms-primary" id="cms-btn-save">💾 Скачать готовый index.html</button>
+        <button type="button" id="cms-btn-exit" title="Выйти из режима редактирования" style="color:#f87171;">✕ Выход</button>
+      </div>
+    `;
     document.body.appendChild(bar);
-    document.getElementById('cms-save').onclick = () => {
-      const clone = document.documentElement.cloneNode(true);
-      const cBar = clone.querySelector('#cms-bar');
-      if (cBar) cBar.remove();
-      clone.querySelectorAll('[contenteditable]').forEach(el => {
-        el.removeAttribute('contenteditable');
-        el.style.outline = '';
-        el.style.outlineOffset = '';
+
+    applyEditableToPage();
+
+    // Наблюдатель DOM: когда переключаются вкладки («Все», «Кухни», «Шкафы»), открывается калькулятор или галерея — режим редактирования НЕ слетает!
+    const mo = new MutationObserver(() => {
+      if (isEditActive) applyEditableToPage();
+    });
+    mo.observe(document.body, { childList: true, subtree: true });
+
+    // Перехват кликов в режиме редактирования (чтобы ссылки и карточки не уводили со страницы при клике по тексту или фото)
+    document.addEventListener('click', e => {
+      if (!isEditActive) return;
+      if (e.target.closest('#cms-studio-bar')) return;
+
+      // Клик по картинке -> сразу открываем выбор нового фото с компьютера/телефона
+      const img = e.target.closest('img');
+      if (img && img.id !== 'v1' && img.id !== 'v2') {
+        e.preventDefault();
+        e.stopPropagation();
+        selectedImg = img;
+        document.getElementById('cms-file-input').click();
+        return;
+      }
+
+      // Клик по редактируемому тексту -> выбираем его и отменяем переход по ссылке/открытие модалки
+      const ed = e.target.closest(EDITABLE_SEL);
+      if (ed) {
+        if (selectedEl && selectedEl !== ed) selectedEl.classList.remove('cms-selected-el');
+        selectedEl = ed;
+        selectedEl.classList.add('cms-selected-el');
+        // Если это ссылка <a> или карточка портфолио, блокируем переход при обычном клике, чтобы можно было спокойно печатать текст
+        const link = e.target.closest('a');
+        if (link) e.preventDefault();
+        const card = e.target.closest('.work-card');
+        if (card && !e.target.closest('.work-details span.more')) {
+          e.stopPropagation();
+        }
+      }
+    }, true);
+
+    // Синхронизация изменений текста на лету
+    document.addEventListener('input', e => {
+      if (!isEditActive) return;
+      syncEditsToDataArrays();
+    }, true);
+
+    // Обработка загрузки нового фото
+    const fileInp = document.getElementById('cms-file-input');
+    fileInp.onchange = e => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const targetImg = selectedImg || document.querySelector('#about-master img');
+      if (!targetImg) {
+        alert('Сначала нажмите на любое фото на сайте, которое хотите заменить!');
+        return;
+      }
+      readAndCompressImage(file, 1400, 0.86, dataUrl => {
+        targetImg.src = dataUrl;
+        syncEditsToDataArrays();
+        // Если фото заменено в лайтбоксе галереи, обновляем и миниатюру
+        if (targetImg.id === 'gl-main-img' && curProj) {
+          curProj.angles[curAngleIdx] = dataUrl;
+          updateGalleryUI();
+        }
       });
-      const outHtml = '<!DOCTYPE html>\r\n' + clone.outerHTML;
+      fileInp.value = '';
+    };
+
+    document.getElementById('cms-btn-change-photo').onclick = () => {
+      alert('Нажмите прямо на любое фото на сайте (фото Юрия, карточку кухни или открытое фото в галерее), и откроется окно выбора вашей картинки!');
+    };
+
+    // Обработка кнопок выравнивания, перемещения и размера шрифта
+    bar.addEventListener('click', e => {
+      const btn = e.target.closest('button[data-act]');
+      if (!btn) return;
+      if (!selectedEl) {
+        alert('Сначала кликните по любому тексту на странице, который хотите передвинуть или выровнять!');
+        return;
+      }
+      const act = btn.getAttribute('data-act');
+      const cs = getComputedStyle(selectedEl);
+      let tx = parseFloat(selectedEl.getAttribute('data-cms-x') || '0');
+      let ty = parseFloat(selectedEl.getAttribute('data-cms-y') || '0');
+
+      if (act === 'align-left') selectedEl.style.textAlign = 'left';
+      else if (act === 'align-center') selectedEl.style.textAlign = 'center';
+      else if (act === 'align-right') selectedEl.style.textAlign = 'right';
+      else if (act === 'move-up') { ty -= 8; }
+      else if (act === 'move-down') { ty += 8; }
+      else if (act === 'move-left') { tx -= 8; }
+      else if (act === 'move-right') { tx += 8; }
+      else if (act === 'move-reset') { tx = 0; ty = 0; selectedEl.style.transform = ''; }
+      else if (act === 'font-inc' || act === 'font-dec') {
+        const curSize = parseFloat(cs.fontSize) || 16;
+        const nextSize = Math.max(10, Math.min(180, curSize + (act === 'font-inc' ? 2 : -2)));
+        selectedEl.style.fontSize = nextSize + 'px';
+      }
+
+      if (act.startsWith('move-') && act !== 'move-reset') {
+        selectedEl.setAttribute('data-cms-x', tx);
+        selectedEl.setAttribute('data-cms-y', ty);
+        selectedEl.style.position = 'relative';
+        selectedEl.style.left = tx + 'px';
+        selectedEl.style.top = ty + 'px';
+      } else if (act === 'move-reset') {
+        selectedEl.removeAttribute('data-cms-x');
+        selectedEl.removeAttribute('data-cms-y');
+        selectedEl.style.left = '';
+        selectedEl.style.top = '';
+      }
+    });
+
+    // Сохранение готового файла index.html со всеми изменениями (включая массивы PROJECTS и CONSULT_TXT)
+    document.getElementById('cms-btn-save').onclick = () => {
+      syncEditsToDataArrays();
+      const clone = document.documentElement.cloneNode(true);
+      const cBar = clone.querySelector('#cms-studio-bar'); if (cBar) cBar.remove();
+      const cStyle = clone.querySelector('#cms-studio-style'); if (cStyle) cStyle.remove();
+      const ld = clone.querySelector('#ld'); if (ld) ld.remove();
+      clone.querySelectorAll('#v1, #v2').forEach(v => v.removeAttribute('src'));
+      clone.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
+      clone.querySelectorAll('.cms-editable-item, .cms-selected-el, .cms-editable-img').forEach(el => {
+        el.classList.remove('cms-editable-item', 'cms-selected-el', 'cms-editable-img');
+      });
+
+      let outHtml = '<!DOCTYPE html>\r\n' + clone.outerHTML;
+      // Обновляем вшитые массивы CONSULT_TXT и PROJECTS внутри кода, чтобы при загрузке страницы все карточки и фото сохранились навсегда
+      outHtml = outHtml.replace(/const CONSULT_TXT=\[.*?\];/, 'const CONSULT_TXT=' + JSON.stringify(CONSULT_TXT) + ';');
+      outHtml = outHtml.replace(/const PROJECTS = \[[\s\S]*?\r?\n\];/, 'const PROJECTS = ' + JSON.stringify(PROJECTS, null, 4) + '\r\n;');
+
       const blob = new Blob([outHtml], { type: 'text/html;charset=utf-8' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = 'index.html';
       a.click();
     };
-    document.getElementById('cms-exit').onclick = () => {
-      document.querySelectorAll('[contenteditable]').forEach(el => {
-        el.removeAttribute('contenteditable');
-        el.style.outline = '';
-        el.style.outlineOffset = '';
+
+    document.getElementById('cms-btn-exit').onclick = () => {
+      isEditActive = false;
+      sessionStorage.removeItem('status_cms_edit');
+      mo.disconnect();
+      document.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
+      document.querySelectorAll('.cms-editable-item, .cms-selected-el, .cms-editable-img').forEach(el => {
+        el.classList.remove('cms-editable-item', 'cms-selected-el', 'cms-editable-img');
       });
       bar.remove();
+      st.remove();
     };
   }
-  if (editMode) enableVisualEditor();
+
+  if (isEditActive) enableStudioEditor();
 })();
 </script></body></html>
