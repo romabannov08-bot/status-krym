@@ -1281,11 +1281,6 @@ if (glWrap) {
       changeGalleryAngle(sign * Math.min(3, glSwipeStreak));
     }
   }, { passive: true });
-}, { passive: true });
-  glWrap.addEventListener('touchend', e => {
-    const diff = e.changedTouches[0].clientX - touchStartX;
-    if (Math.abs(diff) > 40) changeGalleryAngle(diff > 0 ? -1 : 1);
-  }, { passive: true });
 }
 
 const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}}),{threshold:.15});
