@@ -16,7 +16,7 @@ nav{display:flex;gap:28px;font-weight:600;font-size:15px;color:#cfd8d3}nav a:hov
 .btn{display:inline-block;padding:14px 26px;border-radius:99px;background:var(--ac);color:#FFFFFF;font-weight:600;font-size:16px;border:1.5px solid var(--ac);cursor:pointer;transition:.3s}
 .btn:hover{box-shadow:0 0 32px rgba(70,122,113,.45)}.btn.o{background:none;color:var(--fg);border-color:#ffffff55}
 #ld{position:fixed;inset:0;z-index:50;background:var(--bg);display:grid;place-items:center;font:700 26px Oswald,Impact,sans-serif;letter-spacing:.24em;transition:opacity 1.1s ease}
-#scene{height:900vh;position:relative}.stick{position:sticky;top:0;height:100vh;height:100svh;overflow:hidden}
+#scene{height:280vh;position:relative}.stick{position:sticky;top:0;height:100vh;height:100svh;overflow:hidden}
 .stick{background:#000}.stick video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:opacity .25s;will-change:opacity}#v2{opacity:0}
 .shade{position:absolute;inset:0;background:linear-gradient(90deg,rgba(7,9,8,.8),rgba(7,9,8,.1) 65%),linear-gradient(0deg,rgba(7,9,8,.75),transparent 45%)}
 .st{position:absolute;left:clamp(20px,5vw,72px);bottom:clamp(64px,12vh,120px);max-width:min(780px,90vw);opacity:0;transform:translateY(24px);transition:opacity .8s cubic-bezier(.2,.8,.2,1),transform .8s cubic-bezier(.2,.8,.2,1);will-change:opacity,transform;pointer-events:none}
@@ -349,9 +349,9 @@ footer{padding:28px clamp(20px,5vw,72px) calc(28px + env(safe-area-inset-bottom,
 <div id="calc"></div>
 <section class="pad" id="calc-banner-sec" style="padding-top:0">
   <div class="calc-banner rv">
-    <div class="badge-gift">🎁 ПОДАРОК ПРИ ЗАКАЗЕ КУХНИ</div>
+    <div class="badge-gift">РАСЧЁТ СТОИМОСТИ КУХНИ</div>
     <h2>Рассчитайте стоимость кухни за 1 минуту</h2>
-    <p>Ответьте на несколько простых вопросов без сложных замеров. Мастер рассчитает предварительную смету за 15 минут и зафиксирует за вашим номером подарок — каменную мойку в цвет столешницы или петли Blum с доводчиками!</p>
+    <p>Ответьте на несколько простых вопросов без сложных замеров. Мастер рассчитает точную смету за 15 минут, предложит лучшие варианты материалов и подготовит наглядный 3D-проект под ваше помещение!</p>
     <div style="display:flex; flex-wrap:wrap; gap:12px; margin-top:20px;">
       <button type="button" class="btn btn-calc" onclick="openCalcModal()" style="font-size:16px; padding:15px 32px;">Рассчитать стоимость онлайн →</button>
       <a class="btn o" href="tel:+79785738989">Позвонить мастеру Юрию</a>
@@ -386,7 +386,7 @@ footer{padding:28px clamp(20px,5vw,72px) calc(28px + env(safe-area-inset-bottom,
   <div class="modal-content">
     <div style="font-size: 44px; margin-bottom: 8px;">🎉</div>
     <h3>Заявка принята!</h3>
-    <div class="modal-bonus">🎁 Подарок (каменная мойка / петли Blum) и бесплатный выезд зафиксированы!</div>
+    <div class="modal-bonus">✓ Заявка принята! Бесплатный выезд мастера на замер зафиксирован.</div>
     <p id="modal-success-desc">Мастер уже рассчитывает стоимость по вашим параметрам и свяжется с вами в течение 15 минут для согласования точной сметы и 3D-проекта.</p>
     <div style="display:flex; flex-direction:column; gap:10px;">
       <a id="btn-open-direct" class="btn" href="tel:+79785738989">Связаться в MAX</a>
@@ -487,34 +487,55 @@ const pills=[...document.querySelectorAll('.h-pill')],cDesc=document.getElementB
 const CONSULT_TXT=['Обсуждаем ваши пожелания, стиль и эргономику. Примеряем варианты планировки под ваше помещение прямо на месте.','Угловая планировка: используем каждый сантиметр угла и делаем рабочий треугольник удобным.','П-образная планировка: максимум рабочей поверхности и мест хранения для просторной кухни.','Итоговый проект: собираем выбранный вариант с вашими размерами, материалами и техникой.'];
 // ГРАНИЦЫ ЧАСТЕЙ (секунды видео). Видео 1: 4 варианта консультации. Видео 2: этапы 2-7.
 const STOP1=[2.5,5.0,7.5,10], STOP2=[1.67,3.33,5.0,6.67,8.33,10];
-// доля прокрутки: консультация 50%, остальные этапы делят оставшееся поровну
 const W1=.5/STOP1.length, W2=.5/STOP2.length;
 const STEPS=[];let acc=0;
 STOP1.forEach((t,i)=>{STEPS.push({v:1,t0:i?STOP1[i-1]:0,t1:t,st:0,sub:i,p0:acc,p1:acc+W1});acc+=W1});
 STOP2.forEach((t,i)=>{STEPS.push({v:2,t0:i?STOP2[i-1]:0,t1:t,st:i+1,sub:-1,p0:acc,p1:acc+W2});acc+=W2});
-const HOLD=.1; // доля каждого отрезка в конце, где видео стоит на месте
+const HOLD=.12;
 let tg=0,cur=0,shownSt=-1,shownSub=-1,lastT=performance.now(),activeV=0;
 const dur=v=>Math.max(0.1,(v.duration||10)-0.05);
-function updateTarget(){const r=sc.getBoundingClientRect(),m=sc.offsetHeight-innerHeight;tg=Math.min(1,Math.max(0,-r.top/(m>0?m:1)))}
-window.addEventListener('scroll',updateTarget,{passive:true});
-function showStage(s,sub){
-  if(s!==shownSt){shownSt=s;sts.forEach((e,i)=>e.classList.toggle('on',i===s));rail.forEach((e,i)=>e.classList.toggle('on',i===s))}
-  if(sub>=0&&sub!==shownSub){shownSub=sub;pills.forEach((p,i)=>p.classList.toggle('active',i===sub));if(cDesc&&CONSULT_TXT[sub])cDesc.textContent=CONSULT_TXT[sub]}
+
+function updateTarget(){
+  const r=sc.getBoundingClientRect(), m=sc.offsetHeight-innerHeight;
+  tg=Math.min(1,Math.max(0,-r.top/(m>0?m:1)));
 }
+window.addEventListener('scroll',updateTarget,{passive:true});
+
+function showStage(s,sub){
+  if(s!==shownSt){
+    shownSt=s;
+    sts.forEach((e,i)=>e.classList.toggle('on',i===s));
+    rail.forEach((e,i)=>e.classList.toggle('on',i===s));
+  }
+  if(sub>=0&&sub!==shownSub){
+    shownSub=sub;
+    pills.forEach((p,i)=>p.classList.toggle('active',i===sub));
+    if(cDesc&&CONSULT_TXT[sub])cDesc.textContent=CONSULT_TXT[sub];
+  }
+}
+
 const want=new Map();
 function seek(v,t){
   t=Math.min(dur(v),Math.max(0,t));want.set(v,t);
-  if(v.seeking)return; // ждём окончания прошлой перемотки, потом прыгнем к самой свежей цели
+  if(v.seeking)return;
   if(Math.abs(v.currentTime-t)<0.03)return;
   v.currentTime=t;
 }
-[V1,V2].forEach(v=>v.addEventListener('seeked',()=>{const t=want.get(v);if(t!==undefined&&Math.abs(v.currentTime-t)>=0.03)seek(v,t)}));
-function stepAt(p){for(let i=0;i<STEPS.length;i++)if(p<STEPS[i].p1)return i;return STEPS.length-1}
+[V1,V2].forEach(v=>v.addEventListener('seeked',()=>{
+  const t=want.get(v);
+  if(t!==undefined&&Math.abs(v.currentTime-t)>=0.03)seek(v,t);
+}));
+
+function stepAt(p){
+  for(let i=0;i<STEPS.length;i++)if(p<STEPS[i].p1)return i;
+  return STEPS.length-1;
+}
+
 function tick(now){
   now=now||performance.now();
   const dt=Math.min(.1,Math.max(.001,(now-lastT)/1000));lastT=now;
   updateTarget();
-  cur+=(tg-cur)*(1-Math.exp(-dt*7));
+  cur+=(tg-cur)*(1-Math.exp(-dt*9));
   if(Math.abs(tg-cur)<.00005)cur=tg;
   const i=stepAt(cur),s=STEPS[i],u=Math.min(1,Math.max(0,(cur-s.p0)/(s.p1-s.p0))),k=Math.min(1,u/(1-HOLD));
   const time=s.t0+(s.t1-s.t0)*k;
@@ -524,15 +545,17 @@ function tick(now){
   if(hintEl)hintEl.style.opacity=cur>.01?0:1;
   requestAnimationFrame(tick);
 }
+
 let targetStepIdx = -1, stepNavTimer = null;
 function getCurrentStepIdx() {
   return targetStepIdx >= 0 ? targetStepIdx : stepAt(tg);
 }
+
 function scrollToStep(idx, fast) {
   idx = Math.max(0, Math.min(STEPS.length - 1, idx));
   targetStepIdx = idx;
   clearTimeout(stepNavTimer);
-  stepNavTimer = setTimeout(() => { targetStepIdx = -1; }, 900);
+  stepNavTimer = setTimeout(() => { targetStepIdx = -1; }, 700);
   const m = sc.offsetHeight - innerHeight;
   const targetP = STEPS[idx].p0 + .002;
   tg = targetP;
@@ -540,10 +563,11 @@ function scrollToStep(idx, fast) {
     cur = targetP;
     window.scrollTo({ top: sc.offsetTop + m * targetP, behavior: 'auto' });
   } else {
-    cur += (targetP - cur) * 0.55;
+    cur += (targetP - cur) * 0.6;
     window.scrollTo({ top: sc.offsetTop + m * targetP, behavior: 'smooth' });
   }
 }
+
 function stepHeroStage(delta, fast) {
   const curIdx = getCurrentStepIdx();
   const nextIdx = curIdx + delta;
@@ -551,19 +575,67 @@ function stepHeroStage(delta, fast) {
     skipHeroAnimation();
     return;
   }
-  scrollToStep(Math.max(0, nextIdx), fast);
+  if (nextIdx < 0) {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    return;
+  }
+  scrollToStep(nextIdx, fast);
 }
+
 function skipHeroAnimation() {
   targetStepIdx = -1;
   const nextSec = document.getElementById('about-master') || document.getElementById('calc');
   if (nextSec) nextSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
-rail.forEach((b,i)=>{b.style.cursor='pointer';b.onclick=()=>{const idx=STEPS.findIndex(s=>s.st===i);if(idx>=0)scrollToStep(idx, true)}});
-function gotoConsultVariant(n){const idx=STEPS.findIndex(s=>s.v===1&&s.sub===n);if(idx>=0)scrollToStep(idx, true)}
 
-// Быстрая перемотка этапов по свайпам (с накоплением при нескольких свайпах подряд) и стрелкам клавиатуры
+rail.forEach((b,i)=>{
+  b.style.cursor='pointer';
+  b.onclick=()=>{
+    const idx=STEPS.findIndex(s=>s.st===i);
+    if(idx>=0)scrollToStep(idx, false);
+  };
+});
+
+function gotoConsultVariant(n){
+  const idx=STEPS.findIndex(s=>s.v===1&&s.sub===n);
+  if(idx>=0)scrollToStep(idx, false);
+}
+
+// Плавный и четкий скролл колесиком мыши (Wheel-Snap) без бесконечного застревания на 9 экранов
 (function(){
-  let hTouchY = 0, hTouchX = 0, hTouchT = 0, swipeStreak = 0, lastSwipeAt = 0, lastSwipeSign = 0;
+  let lastWheelTime = 0;
+  window.addEventListener('wheel', e => {
+    const r = sc.getBoundingClientRect();
+    // Активно только когда блок сцены в поле зрения (sticky видео зафиксировано)
+    if (r.top > 10 || r.bottom < innerHeight - 10) return;
+    const curIdx = getCurrentStepIdx();
+    
+    // Если на последнем этапе крутим вниз — не блокируем, мягко переходим дальше по сайту к Юрию!
+    if (e.deltaY > 0 && curIdx >= STEPS.length - 1) {
+      return;
+    }
+    // Если на самом первом этапе крутим вверх — мягко разрешаем уйти в самый верх
+    if (e.deltaY < 0 && curIdx <= 0 && window.scrollY <= sc.offsetTop + 10) {
+      return;
+    }
+    
+    // Перехватываем шаг по этапу
+    e.preventDefault();
+    const now = performance.now();
+    if (now - lastWheelTime < 320) return; // дебаунс против мульти-шагов от одного движения колеса
+    lastWheelTime = now;
+    
+    if (e.deltaY > 0) {
+      stepHeroStage(1, false);
+    } else if (e.deltaY < 0) {
+      stepHeroStage(-1, false);
+    }
+  }, { passive: false });
+})();
+
+// Быстрая и комфортная перемотка по свайпам на смартфонах
+(function(){
+  let hTouchY = 0, hTouchX = 0, hTouchT = 0, lastSwipeAt = 0;
   const stickEl = sc.querySelector('.stick');
   if (!stickEl) return;
   stickEl.addEventListener('touchstart', e => {
@@ -577,27 +649,26 @@ function gotoConsultVariant(n){const idx=STEPS.findIndex(s=>s.v===1&&s.sub===n);
     const dy = hTouchY - e.changedTouches[0].clientY;
     const dx = hTouchX - e.changedTouches[0].clientX;
     const dt = Math.max(1, performance.now() - hTouchT);
-    if (Math.abs(dy) > 30 && Math.abs(dy) > Math.abs(dx) * 1.1) {
-      const sign = dy > 0 ? 1 : -1;
+    if (Math.abs(dy) > 35 && Math.abs(dy) > Math.abs(dx) * 1.1) {
       const now = performance.now();
-      if (now - lastSwipeAt < 650 && sign === lastSwipeSign) {
-        swipeStreak++;
-      } else {
-        swipeStreak = 1;
-      }
+      if (now - lastSwipeAt < 250) return;
       lastSwipeAt = now;
-      lastSwipeSign = sign;
-      // При сильном/быстром свайпе или серии свайпов подряд перескакиваем сразу через несколько этапов
-      const velocityBoost = (Math.abs(dy) > 160 && dt < 260) ? 1 : 0;
-      const jump = Math.min(4, swipeStreak + velocityBoost);
-      stepHeroStage(sign * jump, true);
+      const curIdx = getCurrentStepIdx();
+      if (dy > 0) {
+        if (curIdx >= STEPS.length - 1) {
+          skipHeroAnimation();
+        } else {
+          stepHeroStage(1, false);
+        }
+      } else {
+        stepHeroStage(-1, false);
+      }
     }
   }, { passive: true });
 })();
 function rs(){}
-// загрузка видео: на узких экранах лёгкая версия; файл целиком в память, чтобы перемотка не ждала сети
+// загрузка видео: файл целиком в память для мгновенного скролла
 (function(){
-  const mob=Math.min(screen.width,innerWidth)<768;
   const ld=document.getElementById('ld'),pc=document.getElementById('pc');let n=0,hidden=false;
   function hide(){if(hidden)return;hidden=true;updateTarget();showStage(0,0);if(ld){ld.style.opacity=0;setTimeout(()=>ld.remove(),1100)}}
   function ready(){n++;if(pc)pc.textContent=n*50;if(n>=2)hide()}
@@ -610,6 +681,7 @@ function rs(){}
   setTimeout(hide,8000);
 })();
 // ==========================================
+// CONVERSATIONAL CHAT-QUIZ LOGIC
 // CONVERSATIONAL CHAT-QUIZ LOGIC (STATUS)
 // ==========================================
 const quizAnswers = {
@@ -849,9 +921,9 @@ function showFinalLeadForm() {
     <h4>Куда менеджеру прислать расчёт стоимости?</h4>
     <p>Менеджер свяжется с вами для уточнения деталей, согласует точную смету и удобное время бесплатного замера образцов при вашем освещении.</p>
     
-    <div class="bonus-box-quiz">
-      <b>🎁 За вашим номером фиксируются:</b>
-      <span>Каменная мойка в цвет столешницы (или петли Blum) + бесплатный выезд замерщика с образцами материалов</span>
+    <div class="bonus-box-quiz" style="background:rgba(70,122,113,.12); border:1px solid rgba(70,122,113,.4); border-radius:12px; padding:12px 14px; margin-bottom:16px;">
+      <b style="color:var(--ac); display:block; font-size:13px; text-transform:uppercase; margin-bottom:4px;">Бесплатная консультация и выезд на замер:</b>
+      <span>Мастер приедет с образцами фасадов, столешниц и каталогами фурнитуры, сделает точный лазерный замер помещения</span>
     </div>
 
     <div class="lead-inputs">
@@ -914,7 +986,7 @@ function submitQuizLead() {
     '• Бюджет: ' + (quizAnswers.budget || 'Не указан') + '\n' +
     '• Сроки: ' + (quizAnswers.timeline || 'Не указано') + '\n' +
     '• Контактный телефон: ' + phone + '\n' +
-    'Жду расчет от менеджера и закрепление подарка (мойка / доводчики)!'
+    'Жду расчет сметы и 3D-проект от мастера!'
   );
 
   const directBtn = document.getElementById('btn-open-direct');
@@ -1286,15 +1358,17 @@ if (glWrap) {
 const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}}),{threshold:.15});
 document.querySelectorAll('.rv').forEach(e=>io.observe(e));
 
-// ===== ПОЛНОЦЕННЫЙ ВИЗУАЛЬНЫЙ РЕДАКТОР САЙТА ДЛЯ ЗАКАЗЧИКА (ТЕКСТ + ФОТО + ПОЗИЦИЯ) =====
+// ===== ВИЗУАЛЬНЫЙ РЕДАКТОР С ПОДТВЕРЖДЕНИЕМ ДЕЙСТВИЙ (БЕЗ ГЛЮКОВ ИНТЕРФЕЙСА) =====
 (function(){
   let isEditActive = location.search.includes('edit=1') || location.hash === '#edit' || sessionStorage.getItem('status_cms_edit') === '1';
+  let editSubMode = 'edit'; // 'edit' = выбор и правка контента, 'browse' = обычный просмотр и клики
   let fClicks = 0, fTimer = null, selectedEl = null, selectedImg = null;
+  let popoverEl = null;
 
   const ftr = document.querySelector('footer span');
   if (ftr) {
     ftr.style.cursor = 'pointer';
-    ftr.title = 'Нажмите 5 раз подряд для включения режима конструктора сайта';
+    ftr.title = 'Нажмите 5 раз подряд для включения конструктора сайта';
     ftr.addEventListener('click', () => {
       fClicks++;
       clearTimeout(fTimer);
@@ -1303,30 +1377,92 @@ document.querySelectorAll('.rv').forEach(e=>io.observe(e));
     });
   }
 
-  const EDITABLE_SEL = 'h1, h2, h3, h4, p, small, em, .badge-gift, .contact-item b, .contact-item span, .logo, .h-pill, .work-tag, .work-badge-count, .work-details span.more, .gl-title, #gl-desc, .wz-q, .wz-brand, .wz-desc, .btn, footer span';
+  const EDITABLE_SEL = 'h1, h2, h3, h4, p, small, em, .badge-gift, .contact-item b, .contact-item span, .logo, .h-pill, .work-tag, .work-badge-count, .work-details span.more, .gl-title, #gl-desc, .wz-q, .wz-brand, .wz-desc, .btn, footer span, .st small, .st h2, .st p';
 
-  function applyEditableToPage() {
+  function closeActionPopover() {
+    if (popoverEl) { popoverEl.remove(); popoverEl = null; }
+  }
+
+  function showActionPopover(target, type, onEdit, onAction) {
+    closeActionPopover();
+    const r = target.getBoundingClientRect();
+    popoverEl = document.createElement('div');
+    popoverEl.id = 'cms-action-popover';
+    popoverEl.style.cssText = `
+      position: fixed;
+      top: ${Math.max(10, r.top - 46)}px;
+      left: ${Math.max(10, Math.min(window.innerWidth - 280, r.left))}px;
+      z-index: 100000;
+      background: #0d1512;
+      border: 1.5px solid #467A71;
+      box-shadow: 0 12px 36px rgba(0,0,0,.85);
+      border-radius: 99px;
+      padding: 5px 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font: 600 12px Inter, sans-serif;
+      color: #fff;
+      animation: popIn .2s ease;
+    `;
+    
+    if (type === 'image') {
+      popoverEl.innerHTML = `
+        <button type="button" id="cms-act-edit" style="background:#18A0FB;color:#fff;border:none;border-radius:99px;padding:5px 12px;font:700 11.5px Inter,sans-serif;cursor:pointer;">📷 Заменить фото</button>
+        <button type="button" id="cms-act-click" style="background:#1e2d26;color:#cfd8d3;border:1px solid #ffffff24;border-radius:99px;padding:5px 10px;font:600 11.5px Inter,sans-serif;cursor:pointer;">👁️ Открыть / Просмотр</button>
+        <button type="button" id="cms-act-close" style="background:none;color:#9AA7A1;border:none;padding:2px 8px;cursor:pointer;font-size:14px;">✕</button>
+      `;
+    } else {
+      popoverEl.innerHTML = `
+        <button type="button" id="cms-act-edit" style="background:#22c55e;color:#051b0d;border:none;border-radius:99px;padding:5px 12px;font:700 11.5px Inter,sans-serif;cursor:pointer;">✏️ Редактировать текст</button>
+        <button type="button" id="cms-act-click" style="background:#1e2d26;color:#cfd8d3;border:1px solid #ffffff24;border-radius:99px;padding:5px 10px;font:600 11.5px Inter,sans-serif;cursor:pointer;">🔗 Нажать / Открыть</button>
+        <button type="button" id="cms-act-close" style="background:none;color:#9AA7A1;border:none;padding:2px 8px;cursor:pointer;font-size:14px;">✕</button>
+      `;
+    }
+
+    document.body.appendChild(popoverEl);
+
+    document.getElementById('cms-act-edit').onclick = (ev) => {
+      ev.stopPropagation();
+      closeActionPopover();
+      if (onEdit) onEdit();
+    };
+    document.getElementById('cms-act-click').onclick = (ev) => {
+      ev.stopPropagation();
+      closeActionPopover();
+      if (onAction) onAction();
+    };
+    document.getElementById('cms-act-close').onclick = (ev) => {
+      ev.stopPropagation();
+      closeActionPopover();
+    };
+  }
+
+  function applyVisualOutlines() {
     if (!isEditActive) return;
     document.querySelectorAll(EDITABLE_SEL).forEach(el => {
-      if (el.closest('#cms-studio-bar') || el.closest('#cms-img-overlay')) return;
-      if (el.getAttribute('contenteditable') !== 'true') {
-        el.setAttribute('contenteditable', 'true');
-        el.classList.add('cms-editable-item');
+      if (el.closest('#cms-studio-bar') || el.closest('#cms-action-popover')) return;
+      if (editSubMode === 'edit') {
+        el.classList.add('cms-has-outline');
+      } else {
+        el.classList.remove('cms-has-outline', 'cms-is-editing', 'cms-selected-el');
+        el.removeAttribute('contenteditable');
       }
     });
     document.querySelectorAll('img').forEach(img => {
       if (img.closest('#cms-studio-bar') || img.id === 'v1' || img.id === 'v2') return;
-      img.classList.add('cms-editable-img');
-      img.title = 'Нажмите в режиме редактора, чтобы заменить это фото';
+      if (editSubMode === 'edit') {
+        img.classList.add('cms-img-outline');
+      } else {
+        img.classList.remove('cms-img-outline');
+      }
     });
   }
 
   function syncEditsToDataArrays() {
-    // 1. Синхронизируем текущий вариант консультации
     if (typeof shownSub === 'number' && shownSub >= 0 && cDesc && CONSULT_TXT[shownSub] !== undefined) {
       CONSULT_TXT[shownSub] = cDesc.textContent.trim();
     }
-    // 2. Синхронизируем карточки портфолио с массивом PROJECTS
     document.querySelectorAll('.work-card[data-proj-id]').forEach(card => {
       const pid = card.getAttribute('data-proj-id');
       const proj = PROJECTS.find(p => p.id === pid);
@@ -1340,7 +1476,6 @@ document.querySelectorAll('.rv').forEach(e=>io.observe(e));
       if (tag) proj.tag = tag.textContent.trim();
       if (img && img.getAttribute('src')) proj.hero = img.getAttribute('src');
     });
-    // 3. Если открыта галерея проекта, синхронизируем заголовок, описание и текущий ракурс
     const glModal = document.getElementById('gallery-modal');
     if (glModal && glModal.classList.contains('open') && curProj) {
       const glTitle = document.getElementById('gl-title');
@@ -1377,18 +1512,18 @@ document.querySelectorAll('.rv').forEach(e=>io.observe(e));
     sessionStorage.setItem('status_cms_edit', '1');
     if (document.getElementById('cms-studio-bar')) return;
 
-    // Инжектируем стили редактора
     const st = document.createElement('style');
     st.id = 'cms-studio-style';
     st.textContent = `
-      .cms-editable-item { outline: 1px dashed rgba(70,122,113,.65) !important; outline-offset: 3px !important; transition: outline-color .15s; cursor: text !important; }
-      .cms-editable-item:focus, .cms-selected-el { outline: 2px solid #22c55e !important; background: rgba(34,197,94,.06); }
-      .cms-editable-img { outline: 2px dashed #18A0FB !important; outline-offset: -2px !important; cursor: pointer !important; transition: filter .2s, outline .2s; }
-      .cms-editable-img:hover { filter: brightness(1.12); outline: 3px solid #22c55e !important; }
+      .cms-has-outline { outline: 1px dashed rgba(70,122,113,.65) !important; outline-offset: 3px !important; cursor: pointer !important; }
+      .cms-is-editing, .cms-selected-el { outline: 2px solid #22c55e !important; background: rgba(34,197,94,.08) !important; cursor: text !important; }
+      .cms-img-outline { outline: 2px dashed #18A0FB !important; outline-offset: -2px !important; cursor: pointer !important; }
+      .cms-img-outline:hover { outline: 3px solid #22c55e !important; }
       #cms-studio-bar { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 99999; background: rgba(12,18,15,.97); border: 2px solid #467A71; border-radius: 20px; padding: 10px 14px; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 20px 60px rgba(0,0,0,.92); font: 600 12.5px Inter, sans-serif; color: #fff; max-width: 96vw; backdrop-filter: blur(12px); }
       #cms-studio-bar .cms-grp { display: flex; align-items: center; gap: 4px; background: #16211c; padding: 4px 8px; border-radius: 12px; border: 1px solid #ffffff1a; }
       #cms-studio-bar button { background: #1e2d26; color: #fff; border: 1px solid #ffffff24; border-radius: 8px; padding: 6px 10px; font: 600 12px Inter, sans-serif; cursor: pointer; transition: .15s; }
       #cms-studio-bar button:hover { background: #467A71; border-color: #467A71; }
+      #cms-studio-bar button.cms-mode-active { background: #22c55e !important; color: #051b0d !important; font-weight: 700; }
       #cms-studio-bar button.cms-primary { background: #22c55e; border-color: #22c55e; color: #051b0d; font-weight: 700; padding: 7px 14px; }
       #cms-studio-bar button.cms-photo-btn { background: #18A0FB; border-color: #18A0FB; color: #fff; font-weight: 700; }
       #cms-studio-bar .cms-lbl { font-size: 11px; color: #9AA7A1; margin-right: 4px; }
@@ -1398,82 +1533,152 @@ document.querySelectorAll('.rv').forEach(e=>io.observe(e));
     const bar = document.createElement('div');
     bar.id = 'cms-studio-bar';
     bar.innerHTML = `
-      <div class="cms-grp" title="Выберите любой текст и выровняйте его">
-        <span class="cms-lbl">Выравнивание:</span>
+      <div class="cms-grp" title="Переключение режима клика: редактировать или обычные нажатия">
+        <button type="button" id="cms-toggle-edit" class="cms-mode-active" title="Клик по элементам предлагает их редактировать">✏️ Режим правки</button>
+        <button type="button" id="cms-toggle-browse" title="Обычная работа сайта (все кнопки и ссылки нажимаются штатно)">👁️ Просмотр сайта</button>
+      </div>
+      <div class="cms-grp" title="Выравнивание выбранного текста">
+        <span class="cms-lbl">Текст:</span>
         <button type="button" data-act="align-left" title="По левому краю">⬅</button>
         <button type="button" data-act="align-center" title="По центру">↔</button>
         <button type="button" data-act="align-right" title="По правому краю">➡</button>
       </div>
-      <div class="cms-grp" title="Сдвинуть выбранный текст или блок в любую сторону">
-        <span class="cms-lbl">Двигать текст:</span>
+      <div class="cms-grp" title="Сдвинуть выбранный текст или блок">
+        <span class="cms-lbl">Двигать:</span>
         <button type="button" data-act="move-up" title="Сдвинуть выше">↑</button>
         <button type="button" data-act="move-down" title="Сдвинуть ниже">↓</button>
         <button type="button" data-act="move-left" title="Сдвинуть влево">←</button>
         <button type="button" data-act="move-right" title="Сдвинуть вправо">→</button>
-        <button type="button" data-act="move-reset" title="Сбросить сдвиг">⟲</button>
+        <button type="button" data-act="move-reset" title="Сбросить">⟲</button>
       </div>
-      <div class="cms-grp" title="Изменить размер шрифта выбранного текста">
+      <div class="cms-grp" title="Размер шрифта">
         <span class="cms-lbl">Шрифт:</span>
         <button type="button" data-act="font-dec" title="Уменьшить шрифт">A−</button>
         <button type="button" data-act="font-inc" title="Увеличить шрифт">A+</button>
       </div>
       <div class="cms-grp">
-        <button type="button" class="cms-photo-btn" id="cms-btn-change-photo" title="Нажмите сюда или на любое фото на странице, чтобы заменить картинку">📷 Заменить фото</button>
+        <button type="button" class="cms-photo-btn" id="cms-btn-change-photo" title="Заменить фото">📷 Заменить фото</button>
         <input type="file" id="cms-file-input" accept="image/*" style="display:none">
       </div>
       <div class="cms-grp">
         <button type="button" class="cms-primary" id="cms-btn-save">💾 Скачать готовый index.html</button>
-        <button type="button" id="cms-btn-exit" title="Выйти из режима редактирования" style="color:#f87171;">✕ Выход</button>
+        <button type="button" id="cms-btn-exit" title="Выйти из режима конструктора" style="color:#f87171;">✕</button>
       </div>
     `;
     document.body.appendChild(bar);
 
-    applyEditableToPage();
+    applyVisualOutlines();
 
-    // Наблюдатель DOM: когда переключаются вкладки («Все», «Кухни», «Шкафы»), открывается калькулятор или галерея — режим редактирования НЕ слетает!
     const mo = new MutationObserver(() => {
-      if (isEditActive) applyEditableToPage();
+      if (isEditActive) applyVisualOutlines();
     });
     mo.observe(document.body, { childList: true, subtree: true });
 
-    // Перехват кликов в режиме редактирования (чтобы ссылки и карточки не уводили со страницы при клике по тексту или фото)
+    // Кнопки переключения подрежима
+    const btnEdit = document.getElementById('cms-toggle-edit');
+    const btnBrowse = document.getElementById('cms-toggle-browse');
+    btnEdit.onclick = () => {
+      editSubMode = 'edit';
+      btnEdit.classList.add('cms-mode-active');
+      btnBrowse.classList.remove('cms-mode-active');
+      applyVisualOutlines();
+    };
+    btnBrowse.onclick = () => {
+      editSubMode = 'browse';
+      btnBrowse.classList.add('cms-mode-active');
+      btnEdit.classList.remove('cms-mode-active');
+      closeActionPopover();
+      applyVisualOutlines();
+    };
+
+    // Интеллектуальный перехват кликов с кнопкой подтверждения действия
     document.addEventListener('click', e => {
       if (!isEditActive) return;
-      if (e.target.closest('#cms-studio-bar')) return;
+      if (e.target.closest('#cms-studio-bar') || e.target.closest('#cms-action-popover')) return;
 
-      // Клик по картинке -> сразу открываем выбор нового фото с компьютера/телефона
+      // Если включен режим простого просмотра — не мешаем обычному взаимодействию!
+      if (editSubMode === 'browse') return;
+
+      // 1. Клик по фото
       const img = e.target.closest('img');
       if (img && img.id !== 'v1' && img.id !== 'v2') {
         e.preventDefault();
         e.stopPropagation();
         selectedImg = img;
-        document.getElementById('cms-file-input').click();
+        showActionPopover(img, 'image', () => {
+          document.getElementById('cms-file-input').click();
+        }, () => {
+          // Обычное действие с картинкой (например, если это карточка портфолио — открываем галерею)
+          const card = img.closest('.work-card');
+          if (card) {
+            const pid = card.getAttribute('data-proj-id');
+            if (pid) openGallery(pid);
+          }
+        });
         return;
       }
 
-      // Клик по редактируемому тексту -> выбираем его и отменяем переход по ссылке/открытие модалки
+      // 2. Клик по интерактивным или текстовым элементам
       const ed = e.target.closest(EDITABLE_SEL);
       if (ed) {
+        // Если этот элемент УЖЕ в активном режиме набора текста — просто даем печатать!
+        if (ed.getAttribute('contenteditable') === 'true') {
+          return;
+        }
+
+        const isInteractive = ed.closest('button, a, .work-card, .h-pill');
+        if (isInteractive) {
+          e.preventDefault();
+          e.stopPropagation();
+          showActionPopover(ed, 'interactive', () => {
+            // Пользователь выбрал: "Редактировать текст"
+            document.querySelectorAll('[contenteditable="true"]').forEach(el => el.removeAttribute('contenteditable'));
+            ed.setAttribute('contenteditable', 'true');
+            ed.classList.add('cms-is-editing');
+            ed.focus();
+            if (selectedEl && selectedEl !== ed) selectedEl.classList.remove('cms-selected-el');
+            selectedEl = ed;
+            selectedEl.classList.add('cms-selected-el');
+          }, () => {
+            // Пользователь выбрал: "Нажать / Открыть"
+            if (ed.tagName === 'A' && ed.href) {
+              if (ed.href.startsWith('javascript:')) {
+                eval(ed.href.replace('javascript:', ''));
+              } else if (ed.getAttribute('href').startsWith('#')) {
+                const targetSec = document.querySelector(ed.getAttribute('href'));
+                if (targetSec) targetSec.scrollIntoView({ behavior: 'smooth' });
+              } else {
+                window.location.href = ed.href;
+              }
+            } else if (ed.onclick) {
+              ed.onclick(e);
+            } else {
+              ed.click();
+            }
+          });
+          return;
+        }
+
+        // Обычный текст (h1, h2, p и т.д.) без кнопок и ссылок
+        e.preventDefault();
+        closeActionPopover();
+        document.querySelectorAll('[contenteditable="true"]').forEach(el => el.removeAttribute('contenteditable'));
+        ed.setAttribute('contenteditable', 'true');
+        ed.classList.add('cms-is-editing');
+        ed.focus();
         if (selectedEl && selectedEl !== ed) selectedEl.classList.remove('cms-selected-el');
         selectedEl = ed;
         selectedEl.classList.add('cms-selected-el');
-        // Если это ссылка <a> или карточка портфолио, блокируем переход при обычном клике, чтобы можно было спокойно печатать текст
-        const link = e.target.closest('a');
-        if (link) e.preventDefault();
-        const card = e.target.closest('.work-card');
-        if (card && !e.target.closest('.work-details span.more')) {
-          e.stopPropagation();
-        }
+      } else {
+        closeActionPopover();
       }
     }, true);
 
-    // Синхронизация изменений текста на лету
-    document.addEventListener('input', e => {
+    document.addEventListener('input', () => {
       if (!isEditActive) return;
       syncEditsToDataArrays();
     }, true);
 
-    // Обработка загрузки нового фото
     const fileInp = document.getElementById('cms-file-input');
     fileInp.onchange = e => {
       const file = e.target.files && e.target.files[0];
@@ -1486,7 +1691,6 @@ document.querySelectorAll('.rv').forEach(e=>io.observe(e));
       readAndCompressImage(file, 1400, 0.86, dataUrl => {
         targetImg.src = dataUrl;
         syncEditsToDataArrays();
-        // Если фото заменено в лайтбоксе галереи, обновляем и миниатюру
         if (targetImg.id === 'gl-main-img' && curProj) {
           curProj.angles[curAngleIdx] = dataUrl;
           updateGalleryUI();
@@ -1496,15 +1700,14 @@ document.querySelectorAll('.rv').forEach(e=>io.observe(e));
     };
 
     document.getElementById('cms-btn-change-photo').onclick = () => {
-      alert('Нажмите прямо на любое фото на сайте (фото Юрия, карточку кухни или открытое фото в галерее), и откроется окно выбора вашей картинки!');
+      alert('Нажмите на любое фото на сайте (портрет Юрия, карточку кухни или фото в галерее), и появится выбор: «Заменить фото»!');
     };
 
-    // Обработка кнопок выравнивания, перемещения и размера шрифта
     bar.addEventListener('click', e => {
       const btn = e.target.closest('button[data-act]');
       if (!btn) return;
       if (!selectedEl) {
-        alert('Сначала кликните по любому тексту на странице, который хотите передвинуть или выровнять!');
+        alert('Сначала кликните по любому тексту на странице и выберите «Редактировать текст»!');
         return;
       }
       const act = btn.getAttribute('data-act');
@@ -1540,21 +1743,21 @@ document.querySelectorAll('.rv').forEach(e=>io.observe(e));
       }
     });
 
-    // Сохранение готового файла index.html со всеми изменениями (включая массивы PROJECTS и CONSULT_TXT)
     document.getElementById('cms-btn-save').onclick = () => {
+      closeActionPopover();
       syncEditsToDataArrays();
       const clone = document.documentElement.cloneNode(true);
       const cBar = clone.querySelector('#cms-studio-bar'); if (cBar) cBar.remove();
       const cStyle = clone.querySelector('#cms-studio-style'); if (cStyle) cStyle.remove();
+      const cPop = clone.querySelector('#cms-action-popover'); if (cPop) cPop.remove();
       const ld = clone.querySelector('#ld'); if (ld) ld.remove();
       clone.querySelectorAll('#v1, #v2').forEach(v => v.removeAttribute('src'));
       clone.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
-      clone.querySelectorAll('.cms-editable-item, .cms-selected-el, .cms-editable-img').forEach(el => {
-        el.classList.remove('cms-editable-item', 'cms-selected-el', 'cms-editable-img');
+      clone.querySelectorAll('.cms-has-outline, .cms-is-editing, .cms-selected-el, .cms-img-outline').forEach(el => {
+        el.classList.remove('cms-has-outline', 'cms-is-editing', 'cms-selected-el', 'cms-img-outline');
       });
 
       let outHtml = '<!DOCTYPE html>\r\n' + clone.outerHTML;
-      // Обновляем вшитые массивы CONSULT_TXT и PROJECTS внутри кода, чтобы при загрузке страницы все карточки и фото сохранились навсегда
       outHtml = outHtml.replace(/const CONSULT_TXT=\[.*?\];/, 'const CONSULT_TXT=' + JSON.stringify(CONSULT_TXT) + ';');
       outHtml = outHtml.replace(/const PROJECTS = \[[\s\S]*?\r?\n\];/, 'const PROJECTS = ' + JSON.stringify(PROJECTS, null, 4) + '\r\n;');
 
@@ -1568,10 +1771,11 @@ document.querySelectorAll('.rv').forEach(e=>io.observe(e));
     document.getElementById('cms-btn-exit').onclick = () => {
       isEditActive = false;
       sessionStorage.removeItem('status_cms_edit');
+      closeActionPopover();
       mo.disconnect();
       document.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
-      document.querySelectorAll('.cms-editable-item, .cms-selected-el, .cms-editable-img').forEach(el => {
-        el.classList.remove('cms-editable-item', 'cms-selected-el', 'cms-editable-img');
+      document.querySelectorAll('.cms-has-outline, .cms-is-editing, .cms-selected-el, .cms-img-outline').forEach(el => {
+        el.classList.remove('cms-has-outline', 'cms-is-editing', 'cms-selected-el', 'cms-img-outline');
       });
       bar.remove();
       st.remove();
