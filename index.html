@@ -293,7 +293,7 @@ footer{padding:28px clamp(20px,5vw,72px) calc(28px + env(safe-area-inset-bottom,
   </div>
 </header>
 
-<div id="scene"><div class="stick"><video id="v1" data-src="video/stage1.mp4" data-src-m="video/stage1.mp4" muted playsinline preload="auto"></video><video id="v2" data-src="video/stage2.mp4" data-src-m="video/stage2.mp4" muted playsinline preload="auto"></video><div class="shade"></div>
+<div id="scene"><div class="stick"><video id="v1" data-src="video/stage1.mp4" data-src-m="video/stage1_m.mp4" muted playsinline preload="auto"></video><video id="v2" data-src="video/stage2.mp4" data-src-m="video/stage2_m.mp4" muted playsinline preload="auto"></video><div class="shade"></div>
 <div class="st on" id="st-consult">
   <small>01 — КОНСУЛЬТАЦИЯ</small>
   <h2>Консультация</h2>
@@ -667,18 +667,39 @@ function gotoConsultVariant(n){
   }, { passive: true });
 })();
 function rs(){}
-// загрузка видео: файл целиком в память для мгновенного скролла
+// Мгновенная потоковая загрузка видео с аппаратным ускорением без блокировки экрана
 (function(){
-  const ld=document.getElementById('ld'),pc=document.getElementById('pc');let n=0,hidden=false;
-  function hide(){if(hidden)return;hidden=true;updateTarget();showStage(0,0);if(ld){ld.style.opacity=0;setTimeout(()=>ld.remove(),1100)}}
-  function ready(){n++;if(pc)pc.textContent=n*50;if(n>=2)hide()}
-  [V1,V2].forEach(v=>{
-    v.muted=true;v.pause();
-    v.addEventListener('loadeddata',ready,{once:true});v.addEventListener('error',ready,{once:true});
-    const u=v.dataset.src;
-    try{fetch(u).then(r=>{if(!r.ok)throw 0;return r.blob()}).then(b=>{v.src=URL.createObjectURL(b)}).catch(()=>{v.src=u})}catch(e){v.src=u}
+  const isMob = Math.min(screen.width, window.innerWidth) < 768;
+  const ld = document.getElementById('ld'), pc = document.getElementById('pc');
+  let hidden = false;
+  function hide(){
+    if(hidden) return;
+    hidden = true;
+    updateTarget();
+    showStage(0, 0);
+    if(ld){
+      ld.style.transition = 'opacity 0.35s ease';
+      ld.style.opacity = '0';
+      setTimeout(() => { if(ld && ld.parentNode) ld.parentNode.removeChild(ld); }, 400);
+    }
+  }
+  [V1, V2].forEach(v => {
+    if(!v) return;
+    v.muted = true;
+    v.pause();
+    const u = (isMob && v.dataset.srcM) ? v.dataset.srcM : v.dataset.src;
+    v.src = u;
+    v.load();
   });
-  setTimeout(hide,8000);
+  if(V1){
+    V1.addEventListener('loadeddata', () => { if(pc) pc.textContent = '100'; hide(); }, {once: true});
+    V1.addEventListener('canplay', () => { if(pc) pc.textContent = '100'; hide(); }, {once: true});
+    V1.addEventListener('error', hide, {once: true});
+  }
+  if(V2){
+    V2.addEventListener('error', () => {}, {once: true});
+  }
+  setTimeout(hide, 800);
 })();
 // ==========================================
 // CONVERSATIONAL CHAT-QUIZ LOGIC
@@ -1253,7 +1274,7 @@ function renderGrid(filter) {
   gr.innerHTML = PROJECTS.filter(p => filter === '*' || p.cat === filter).map(p => `
     <div class="work-card rv in" data-proj-id="${p.id}" onclick="openGallery('${p.id}')">
       <div class="work-img-box">
-        <img src="${p.hero}" alt="${p.title}" loading="lazy">
+        <img src="${p.hero}" alt="${p.title}" loading="lazy" decoding="async">
         <div class="work-badge-count">📷 ${p.count} ракурсов</div>
         <div class="work-tag">${p.tag}</div>
       </div>
@@ -1302,10 +1323,16 @@ function updateGalleryUI() {
   document.getElementById('gl-desc').textContent = curProj.desc;
   document.getElementById('gl-counter').textContent = 'Ракурс ' + (curAngleIdx + 1) + ' из ' + curProj.angles.length;
   document.getElementById('gl-main-img').src = curProj.angles[curAngleIdx];
+  if (curProj.angles.length > 1) {
+    const nextIdx = (curAngleIdx + 1) % curProj.angles.length;
+    const prevIdx = (curAngleIdx - 1 + curProj.angles.length) % curProj.angles.length;
+    new Image().src = curProj.angles[nextIdx];
+    new Image().src = curProj.angles[prevIdx];
+  }
   const thumbs = document.getElementById('gl-thumbs');
   thumbs.innerHTML = curProj.angles.map((a, i) => `
     <div class="gl-thumb${i === curAngleIdx ? ' active' : ''}" onclick="setGalleryAngle(${i})">
-      <img src="${a}" alt="">
+      <img src="${a}" alt="" loading="lazy">
     </div>
   `).join('');
 }
