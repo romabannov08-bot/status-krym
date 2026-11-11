@@ -1056,19 +1056,48 @@ function sendLeadToVkBot(lead, formattedText) {
 }
 
 function sendLeadToMaxBot(lead) {
+  const leadPayload = {
+    id: 'lead_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+    ts: Date.now(),
+    date: new Date().toLocaleString('ru-RU'),
+    name: lead.name || 'Клиент с сайта',
+    phone: lead.phone || 'Не указан',
+    messenger: lead.messenger || 'MAX',
+    shape: lead.shape || 'Не указана',
+    size: lead.size || 'Нужен замер',
+    facades: lead.facades || 'Консультация',
+    countertop: lead.countertop || 'Консультация',
+    hardware: lead.hardware || 'Консультация',
+    budget: lead.budget || 'Не указан',
+    timeline: lead.timeline || 'Не указано'
+  };
+
+  // 0. Сохранение в онлайн-таблицу заявок (облако + резерв в браузере)
+  try {
+    const prev = JSON.parse(localStorage.getItem('status_leads_backup') || '[]');
+    prev.push(leadPayload);
+    localStorage.setItem('status_leads_backup', JSON.stringify(prev));
+  } catch (_) {}
+
+  fetch('https://ntfy.sh/status_krym_leads_db_8989', {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(leadPayload)
+  }).catch(() => {});
+
   const leadText =
     '🔔 НОВАЯ ЗАЯВКА С САЙТА «СТАТУС»!\n\n' +
-    '👤 Имя клиента: ' + (lead.name || 'Клиент с сайта') + '\n' +
-    '📱 Телефон: ' + (lead.phone || 'Не указан') + '\n' +
-    '💬 Удобный способ связи: ' + (lead.messenger || 'MAX') + '\n\n' +
+    '👤 Имя клиента: ' + leadPayload.name + '\n' +
+    '📱 Телефон: ' + leadPayload.phone + '\n' +
+    '💬 Удобный способ связи: ' + leadPayload.messenger + '\n\n' +
     '📋 ПАРАМЕТРЫ КУХНИ:\n' +
-    '• Планировка: ' + (lead.shape || 'Не указана') + '\n' +
-    '• Размеры: ' + (lead.size || 'Нужен замер') + '\n' +
-    '• Фасады: ' + (lead.facades || 'Консультация') + '\n' +
-    '• Столешница: ' + (lead.countertop || 'Консультация') + '\n' +
-    '• Фурнитура: ' + (lead.hardware || 'Консультация') + '\n' +
-    '• Бюджет: ' + (lead.budget || 'Не указан') + '\n' +
-    '• Сроки: ' + (lead.timeline || 'Не указано') + '\n\n' +
+    '• Планировка: ' + leadPayload.shape + '\n' +
+    '• Размеры: ' + leadPayload.size + '\n' +
+    '• Фасады: ' + leadPayload.facades + '\n' +
+    '• Столешница: ' + leadPayload.countertop + '\n' +
+    '• Фурнитура: ' + leadPayload.hardware + '\n' +
+    '• Бюджет: ' + leadPayload.budget + '\n' +
+    '• Сроки: ' + leadPayload.timeline + '\n\n' +
     '✅ Бесплатный выезд мастера на замер зафиксирован.';
 
   // 1. Отправка в бота группы ВКонтакте (vk.com/smstatus)
@@ -1962,6 +1991,7 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
         <input type="file" id="cms-file-input" accept="image/*" style="display:none">
       </div>
       <div class="cms-grp">
+        <button type="button" id="cms-btn-leads" title="Открыть онлайн-таблицу всех заявок с калькулятора" style="background:#0f2922; border-color:#467A71; color:#5eead4; font-weight:700;">📊 Таблица заявок</button>
         <button type="button" class="cms-primary" id="cms-btn-save">💾 Скачать готовый index.html</button>
         <button type="button" id="cms-btn-exit" title="Выйти из режима конструктора" style="color:#f87171;">✕</button>
       </div>
@@ -2245,6 +2275,11 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
         selectedEl.style.top = '';
       }
     });
+
+    document.getElementById('cms-btn-leads').onclick = () => {
+      const targetUrl = location.protocol === 'file:' ? 'ТАБЛИЦА_ЗАЯВОК.html' : 'leads.html';
+      window.open(targetUrl, '_blank');
+    };
 
     document.getElementById('cms-btn-save').onclick = () => {
       closeActionPopover();
