@@ -973,16 +973,90 @@ function selectQuizMessenger(name, btnEl) {
   btnEl.classList.add('selected');
 }
 
-// Настройки бота мессенджера MAX (https://dev.max.ru)
-const MAX_BOT_CONFIG = {
-  accessToken: '', // Вставьте сюда токен от @MasterBot в MAX
-  userId: '',      // Ваш user_id в MAX (или chatId)
-  chatId: '',
-  webhookUrl: 'http://localhost:3847/lead'
+// Настройки бота группы ВКонтакте (vk.com/smstatus) и мессенджера MAX
+const VK_BOT_CONFIG = {
+  accessToken: '', // Ключ доступа сообщества ВК (Управление -> Работа с API -> Ключи доступа)
+  userIds: []      // ID получателей в ВК (например: [123456789]). Если пусто — бот сам найдёт админов/диалоги группы!
 };
 
+const MAX_BOT_CONFIG = {
+  accessToken: '', // Токен от @MasterBot в MAX (когда заказчик пришлёт)
+  userId: '',
+  chatId: '',
+  webhookUrl: ''
+};
+
+function vkJsonpCall(method, params, cb) {
+  const cbName = '__vkCb_' + Math.floor(Math.random() * 1e9);
+  window[cbName] = function(data) {
+    delete window[cbName];
+    if (script.parentNode) script.parentNode.removeChild(script);
+    if (cb) cb(data);
+  };
+  const qs = Object.keys(params).map(k => encodeURIComponent(k) + '=' + encodeURIComponent(params[k])).join('&');
+  const script = document.createElement('script');
+  script.src = 'https://api.vk.com/method/' + method + '?' + qs + '&v=5.199&callback=' + cbName;
+  script.onerror = function() {
+    delete window[cbName];
+    if (script.parentNode) script.parentNode.removeChild(script);
+  };
+  document.body.appendChild(script);
+}
+
+function sendVkMessageToPeer(peerId, text) {
+  if (!VK_BOT_CONFIG.accessToken || !peerId) return;
+  vkJsonpCall('messages.send', {
+    peer_id: peerId,
+    random_id: Math.floor(Math.random() * 2147483647),
+    message: text,
+    access_token: VK_BOT_CONFIG.accessToken
+  });
+}
+
+function sendLeadToVkBot(lead, formattedText) {
+  if (!VK_BOT_CONFIG.accessToken) return;
+
+  if (Array.isArray(VK_BOT_CONFIG.userIds) && VK_BOT_CONFIG.userIds.length > 0) {
+    VK_BOT_CONFIG.userIds.forEach(uid => sendVkMessageToPeer(uid, formattedText));
+    return;
+  }
+
+  // Если ID получателя не указан вручную — автоматически находим контакты админов группы и активные диалоги
+  const sentPeers = new Set();
+  vkJsonpCall('groups.getById', {
+    fields: 'contacts',
+    access_token: VK_BOT_CONFIG.accessToken
+  }, res => {
+    const grp = res && res.response && (res.response.groups ? res.response.groups[0] : res.response[0]);
+    if (grp && Array.isArray(grp.contacts)) {
+      grp.contacts.forEach(c => {
+        if (c.user_id && !sentPeers.has(c.user_id)) {
+          sentPeers.add(c.user_id);
+          sendVkMessageToPeer(c.user_id, formattedText);
+        }
+      });
+    }
+  });
+
+  vkJsonpCall('messages.getConversations', {
+    count: 5,
+    access_token: VK_BOT_CONFIG.accessToken
+  }, res => {
+    const items = res && res.response && res.response.items;
+    if (Array.isArray(items)) {
+      items.forEach(it => {
+        const pid = it.conversation && it.conversation.peer && it.conversation.peer.id;
+        if (pid && !sentPeers.has(pid)) {
+          sentPeers.add(pid);
+          sendVkMessageToPeer(pid, formattedText);
+        }
+      });
+    }
+  });
+}
+
 function sendLeadToMaxBot(lead) {
-  const maxText =
+  const leadText =
     '🔔 НОВАЯ ЗАЯВКА С САЙТА «СТАТУС»!\n\n' +
     '👤 Имя клиента: ' + (lead.name || 'Клиент с сайта') + '\n' +
     '📱 Телефон: ' + (lead.phone || 'Не указан') + '\n' +
@@ -997,7 +1071,10 @@ function sendLeadToMaxBot(lead) {
     '• Сроки: ' + (lead.timeline || 'Не указано') + '\n\n' +
     '✅ Бесплатный выезд мастера на замер зафиксирован.';
 
-  // 1. Отправка напрямую через официальный Bot API мессенджера MAX (если указаны токен и ID)
+  // 1. Отправка в бота группы ВКонтакте (vk.com/smstatus)
+  sendLeadToVkBot(lead, leadText);
+
+  // 2. Отправка через официальный Bot API мессенджера MAX (если указан токен)
   if (MAX_BOT_CONFIG.accessToken && (MAX_BOT_CONFIG.userId || MAX_BOT_CONFIG.chatId)) {
     const query = MAX_BOT_CONFIG.userId
       ? '?user_id=' + encodeURIComponent(MAX_BOT_CONFIG.userId)
@@ -1008,11 +1085,11 @@ function sendLeadToMaxBot(lead) {
         'Authorization': MAX_BOT_CONFIG.accessToken,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ text: maxText })
+      body: JSON.stringify({ text: leadText })
     }).catch(() => {});
   }
 
-  // 2. Дублирование на сервер бота max_bot.js (если запущен локально или на сервере)
+  // 3. Дублирование на локальный/серверный вебхук (если указан)
   if (MAX_BOT_CONFIG.webhookUrl) {
     fetch(MAX_BOT_CONFIG.webhookUrl, {
       method: 'POST',
