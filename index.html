@@ -3,6 +3,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Кухни и шкафы на заказ в Евпатории и Крыму</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Oswald:wght@600;700&display=swap&subset=cyrillic" rel="stylesheet">
 <style>
 :root{--bg:#070908;--fg:#EEF2EF;--mut:#9AA7A1;--ac:#467A71;--ac2:#5E9A8F;--card:#0F1412;color-scheme:dark}
@@ -317,7 +318,7 @@ footer{padding:28px clamp(20px,5vw,72px) calc(28px + env(safe-area-inset-bottom,
   </div>
 </header>
 
-<div id="scene"><div class="stick"><video id="v1" data-src="video/stage1.mp4" data-src-m="video/stage1_m.mp4" muted playsinline preload="auto"></video><video id="v2" data-src="video/stage2.mp4" data-src-m="video/stage2_m.mp4" muted playsinline preload="none"></video><div class="shade"></div>
+<div id="scene"><div class="stick"><video id="v1" data-src="video/stage1.mp4" data-src-m="video/stage1_m.mp4" data-cdn="https://cdn.jsdelivr.net/gh/romabannov08-bot/status-krym@main/video/stage1.mp4" data-cdn-m="https://cdn.jsdelivr.net/gh/romabannov08-bot/status-krym@main/video/stage1_m.mp4" muted playsinline preload="auto"></video><video id="v2" data-src="video/stage2.mp4" data-src-m="video/stage2_m.mp4" data-cdn="https://cdn.jsdelivr.net/gh/romabannov08-bot/status-krym@main/video/stage2.mp4" data-cdn-m="https://cdn.jsdelivr.net/gh/romabannov08-bot/status-krym@main/video/stage2_m.mp4" muted playsinline preload="none"></video><div class="shade"></div>
 <div class="st on" id="st-consult">
   <small>01 — КОНСУЛЬТАЦИЯ</small>
   <h2>Консультация</h2>
@@ -556,15 +557,111 @@ function stepAt(p){
 }
 
 let stage2VideoLoaded = false;
+const VIDEO_CACHE_NAME = 'status-krym-video-v2';
+
+function pickVideoSources(v) {
+  const isMob = Math.min(screen.width, window.innerWidth) < 768;
+  const localSrc = (isMob && v.dataset.srcM) ? v.dataset.srcM : v.dataset.src;
+  const cdnSrc = (isMob && v.dataset.cdnM) ? v.dataset.cdnM : v.dataset.cdn;
+  return { localSrc, cdnSrc };
+}
+
+async function fetchVideoBlobWithCache(v, onProgress) {
+  const { localSrc, cdnSrc } = pickVideoSources(v);
+  if (!localSrc) return null;
+
+  // При открытии локально (file://) сразу отдаём локальный файл
+  if (location.protocol === 'file:') {
+    return localSrc;
+  }
+
+  // На GitHub Pages / хостинге используем кэш браузера + быстрый CDN jsDelivr с фолбэком на репозиторий
+  const cacheKey = new Request(location.origin + '/' + localSrc);
+  if ('caches' in window) {
+    try {
+      const cache = await caches.open(VIDEO_CACHE_NAME);
+      const cached = await cache.match(cacheKey);
+      if (cached) {
+        const blob = await cached.blob();
+        if (blob && blob.size > 100000) {
+          if (onProgress) onProgress(100);
+          return URL.createObjectURL(blob);
+        }
+      }
+    } catch (_) {}
+  }
+
+  const candidates = [];
+  if (cdnSrc) candidates.push(cdnSrc);
+  candidates.push(localSrc);
+
+  for (const url of candidates) {
+    try {
+      const resp = await fetch(url, { mode: 'cors', cache: 'force-cache' });
+      if (!resp.ok || !resp.body) continue;
+
+      const total = Number(resp.headers.get('content-length')) || 0;
+      const reader = resp.body.getReader();
+      const chunks = [];
+      let loaded = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        loaded += value.byteLength;
+        if (total > 0 && onProgress) {
+          onProgress(Math.min(99, Math.round((loaded / total) * 100)));
+        }
+      }
+
+      const blob = new Blob(chunks, { type: 'video/mp4' });
+      if (blob.size < 100000) continue;
+
+      if ('caches' in window) {
+        try {
+          const cache = await caches.open(VIDEO_CACHE_NAME);
+          await cache.put(cacheKey, new Response(blob, {
+            headers: { 'Content-Type': 'video/mp4', 'Content-Length': String(blob.size) }
+          }));
+        } catch (_) {}
+      }
+
+      if (onProgress) onProgress(100);
+      return URL.createObjectURL(blob);
+    } catch (_) {}
+  }
+
+  return cdnSrc || localSrc;
+}
+
+function attachOptimizedVideo(v, url) {
+  if (!v || !url || v.dataset.blobReady === '1') return;
+  const savedT = v.currentTime || 0;
+  v.preload = 'auto';
+  v.src = url;
+  if (url.startsWith('blob:')) v.dataset.blobReady = '1';
+  v.load();
+  if (savedT > 0.05) {
+    v.addEventListener('loadedmetadata', () => {
+      try { v.currentTime = savedT; } catch (_) {}
+    }, { once: true });
+  }
+}
+
 function loadStage2Video(){
   if(stage2VideoLoaded || !V2) return;
-  const isMob = Math.min(screen.width, window.innerWidth) < 768;
-  const src = (isMob && V2.dataset.srcM) ? V2.dataset.srcM : V2.dataset.src;
-  if(!src) return;
   stage2VideoLoaded = true;
-  V2.preload = 'auto';
-  V2.src = src;
-  V2.load();
+  const { localSrc, cdnSrc } = pickVideoSources(V2);
+  if (location.protocol === 'file:') {
+    attachOptimizedVideo(V2, localSrc);
+    return;
+  }
+  fetchVideoBlobWithCache(V2).then(url => {
+    if (url) attachOptimizedVideo(V2, url);
+  }).catch(() => {
+    attachOptimizedVideo(V2, cdnSrc || localSrc);
+  });
 }
 
 function tick(now){
@@ -650,9 +747,8 @@ function gotoConsultVariant(n){
 
 // На мобильных оставляем нативный вертикальный свайп браузера.
 function rs(){}
-// Мгновенная потоковая загрузка видео с аппаратным ускорением без блокировки экрана
+// Оптимизированная загрузка роликов через CDN репозитория + Cache API + Blob URL
 (function(){
-  const isMob = Math.min(screen.width, window.innerWidth) < 768;
   const ld = document.getElementById('ld'), pc = document.getElementById('pc');
   let hidden = false;
   function hide(){
@@ -666,28 +762,53 @@ function rs(){}
       setTimeout(() => { if(ld && ld.parentNode) ld.parentNode.removeChild(ld); }, 400);
     }
   }
-  if(V1){
-    V1.muted = true;
-    V1.pause();
-    V1.preload = 'auto';
-    const u = (isMob && V1.dataset.srcM) ? V1.dataset.srcM : V1.dataset.src;
-    V1.src = u;
-    V1.load();
+  function scheduleStage2Preload(){
+    setTimeout(() => {
+      if (!stage2VideoLoaded) loadStage2Video();
+    }, 200);
   }
   if(V2){
     V2.muted = true;
     V2.pause();
     V2.preload = 'none';
-  }
-  if(V1){
-    V1.addEventListener('loadeddata', () => { if(pc) pc.textContent = '100'; hide(); }, {once: true});
-    V1.addEventListener('canplay', () => { if(pc) pc.textContent = '100'; hide(); }, {once: true});
-    V1.addEventListener('error', hide, {once: true});
-  }
-  if(V2){
     V2.addEventListener('error', () => {}, {once: true});
   }
-  setTimeout(hide, 800);
+  if(V1){
+    V1.muted = true;
+    V1.pause();
+    V1.preload = 'auto';
+    V1.addEventListener('loadeddata', () => {
+      if(pc) pc.textContent = '100';
+      hide();
+      scheduleStage2Preload();
+    }, {once: true});
+    V1.addEventListener('canplay', () => {
+      if(pc) pc.textContent = '100';
+      hide();
+    }, {once: true});
+    V1.addEventListener('error', () => {
+      const { localSrc } = pickVideoSources(V1);
+      if (localSrc && V1.getAttribute('src') !== localSrc) {
+        V1.src = localSrc;
+        V1.load();
+      }
+      hide();
+    }, {once: true});
+
+    const { localSrc, cdnSrc } = pickVideoSources(V1);
+    if (location.protocol === 'file:') {
+      attachOptimizedVideo(V1, localSrc);
+    } else {
+      fetchVideoBlobWithCache(V1, pct => {
+        if (pc) pc.textContent = String(pct);
+      }).then(url => {
+        attachOptimizedVideo(V1, url || cdnSrc || localSrc);
+      }).catch(() => {
+        attachOptimizedVideo(V1, cdnSrc || localSrc);
+      });
+    }
+  }
+  setTimeout(hide, 750);
 })();
 // ==========================================
 // CONVERSATIONAL CHAT-QUIZ LOGIC
@@ -1448,7 +1569,7 @@ function renderGrid(filter) {
   if (!gr) return;
   const f = filter || getActiveFilter();
   const isCms = window.__statusCmsActive === true;
-  gr.innerHTML = PROJECTS.filter(p => f === '*' || p.cat === f).map((p, i) => {
+  const cardsHtml = PROJECTS.filter(p => f === '*' || p.cat === f).map((p, i) => {
     const cnt = Array.isArray(p.angles) ? p.angles.length : (p.count || 1);
     p.count = cnt;
     return `
@@ -1459,7 +1580,8 @@ function renderGrid(filter) {
         <div class="cms-card-tools" onclick="event.stopPropagation()">
           <button type="button" class="cms-ct-btn replace" title="Заменить обложку / фото" onclick="window.__cmsCardReplace && window.__cmsCardReplace('${p.id}')">📷</button>
           <button type="button" class="cms-ct-btn add" title="Добавить фото (ракурс) в этот проект" onclick="window.__cmsCardAdd && window.__cmsCardAdd('${p.id}')">＋ Фото</button>
-          <button type="button" class="cms-ct-btn del" title="Удалить ракурс из проекта" onclick="window.__cmsCardDel && window.__cmsCardDel('${p.id}')">🗑️</button>
+          <button type="button" class="cms-ct-btn del" title="Удалить текущий ракурс из проекта" onclick="window.__cmsCardDel && window.__cmsCardDel('${p.id}')">🗑️</button>
+          <button type="button" class="cms-ct-btn rm-block" title="Удалить весь блок (карточку проекта)" onclick="window.__cmsCardRemoveBlock && window.__cmsCardRemoveBlock('${p.id}')">✖ Блок</button>
         </div>` : ''}
         <div class="work-badge-count">📷 ${cnt} ${pluralizeAngles(cnt)}</div>
         <div class="work-tag">${p.tag}</div>
@@ -1472,6 +1594,18 @@ function renderGrid(filter) {
     </div>
   `;
   }).join('');
+
+  const addBlockHtml = isCms ? `
+    <div class="work-card cms-add-project-card" onclick="window.__cmsOpenNewProjectModal && window.__cmsOpenNewProjectModal()" title="Создать новый блок (карточку) с фотографиями в разделе Работы">
+      <div class="cms-add-proj-inner">
+        <div class="cms-add-proj-plus">＋</div>
+        <strong>Добавить блок с фото</strong>
+        <span>Создать новую карточку в разделе «Работы» с любым количеством ракурсов</span>
+      </div>
+    </div>
+  ` : '';
+
+  gr.innerHTML = cardsHtml + addBlockHtml;
 }
 renderGrid('*');
 
@@ -1606,7 +1740,7 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
   const ftr = document.querySelector('footer span');
   if (ftr) {
     ftr.style.cursor = 'pointer';
-    ftr.title = 'Нажмите 5 раз подряд для включения конструктора сайта';
+    ftr.title = 'Нажмите 5 раз подряд (или Ctrl+Shift+E) для включения конструктора сайта';
     ftr.addEventListener('click', () => {
       fClicks++;
       clearTimeout(fTimer);
@@ -1614,6 +1748,17 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
       if (fClicks >= 5) { fClicks = 0; enableStudioEditor(); }
     });
   }
+
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === 'KeyE') {
+      e.preventDefault();
+      if (!isEditActive) enableStudioEditor();
+      else {
+        const exitBtn = document.getElementById('cms-btn-exit');
+        if (exitBtn) exitBtn.click();
+      }
+    }
+  });
 
   const EDITABLE_SEL = 'h1, h2, h3, h4, p, small, em, .badge-gift, .contact-item b, .contact-item span, .logo, .h-pill, .work-tag, .work-badge-count, .work-details span.more, .gl-title, #gl-desc, .wz-q, .wz-brand, .wz-desc, .btn, footer span, .st small, .st h2, .st p';
 
@@ -1732,6 +1877,161 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
     if (!proj) return;
     const heroIdx = Math.max(0, proj.angles.indexOf(proj.hero));
     deleteAngleFromProject(proj, heroIdx);
+  };
+
+  window.__cmsCardRemoveBlock = function(pId) {
+    const pIdx = PROJECTS.findIndex(p => p.id === pId);
+    if (pIdx === -1) return;
+    const proj = PROJECTS[pIdx];
+    if (!confirm(`Удалить блок «${proj.title}» целиком из раздела «Работы»?`)) return;
+    PROJECTS.splice(pIdx, 1);
+    if (curProj && curProj.id === pId) closeGallery();
+    renderGrid(getActiveFilter());
+  };
+
+  window.__cmsOpenNewProjectModal = function() {
+    let modal = document.getElementById('cms-new-proj-modal');
+    if (modal) modal.remove();
+
+    const activeF = getActiveFilter();
+    const defCat = activeF === 'w' ? 'w' : 'k';
+    const defTag = defCat === 'w' ? 'Шкафы · Евпатория' : 'Кухня · Евпатория';
+
+    let newImages = [];
+    let heroIdx = 0;
+
+    modal = document.createElement('div');
+    modal.id = 'cms-new-proj-modal';
+    modal.innerHTML = `
+      <div class="cms-np-box" onclick="event.stopPropagation()">
+        <div class="cms-np-head">
+          <strong>➕ Новый блок в разделе «Работы»</strong>
+          <button type="button" class="cms-np-close" title="Закрыть">✕</button>
+        </div>
+        <div class="cms-np-grid">
+          <div class="cms-np-field">
+            <label>Раздел (фильтр)</label>
+            <select id="cms-np-cat">
+              <option value="k"${defCat === 'k' ? ' selected' : ''}>Кухни</option>
+              <option value="w"${defCat === 'w' ? ' selected' : ''}>Шкафы и гардеробные</option>
+            </select>
+          </div>
+          <div class="cms-np-field">
+            <label>Метка / город (на фото)</label>
+            <input type="text" id="cms-np-tag" value="${defTag}" placeholder="Напр.: Кухня · Евпатория">
+          </div>
+        </div>
+        <div class="cms-np-field">
+          <label>Название проекта</label>
+          <input type="text" id="cms-np-title" placeholder="Напр.: Кухня Лофт &amp; Светлый Дуб">
+        </div>
+        <div class="cms-np-field">
+          <label>Описание (материалы, фурнитура, детали)</label>
+          <textarea id="cms-np-desc" rows="2" placeholder="Напр.: Фасады AGT Soft Touch, столешница HPL 38 мм, фурнитура Blum"></textarea>
+        </div>
+        <div class="cms-np-field">
+          <label>Фотографии проекта (можно выбрать сразу несколько ракурсов)</label>
+          <div class="cms-np-photos-bar">
+            <button type="button" id="cms-np-pick-photos" class="cms-np-pick-btn">📷 Выбрать фото с устройства</button>
+            <span id="cms-np-photo-count" class="cms-np-cnt">Выбрано: 0 фото</span>
+            <input type="file" id="cms-np-file-inp" accept="image/*" multiple style="display:none">
+          </div>
+          <div id="cms-np-thumbs" class="cms-np-thumbs"></div>
+        </div>
+        <div class="cms-np-actions">
+          <button type="button" id="cms-np-submit" class="cms-np-submit">✅ Добавить блок в раздел «Работы»</button>
+          <button type="button" class="cms-np-cancel">Отмена</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const closeNewProjModal = () => modal.remove();
+    modal.onclick = closeNewProjModal;
+    modal.querySelector('.cms-np-close').onclick = closeNewProjModal;
+    modal.querySelector('.cms-np-cancel').onclick = closeNewProjModal;
+
+    const catSel = modal.querySelector('#cms-np-cat');
+    const tagInp = modal.querySelector('#cms-np-tag');
+    let tagEdited = false;
+    tagInp.addEventListener('input', () => { tagEdited = true; });
+    catSel.addEventListener('change', () => {
+      if (!tagEdited) {
+        tagInp.value = catSel.value === 'w' ? 'Шкафы · Евпатория' : 'Кухня · Евпатория';
+      }
+    });
+
+    const thumbsWrap = modal.querySelector('#cms-np-thumbs');
+    const countEl = modal.querySelector('#cms-np-photo-count');
+    const renderNewThumbs = () => {
+      countEl.textContent = `Выбрано: ${newImages.length} ${pluralizeAngles(newImages.length).replace('ракурс', 'фото').replace('фотоа', 'фото').replace('фотоов', 'фото')}`;
+      if (newImages.length > 0 && heroIdx >= newImages.length) heroIdx = 0;
+      thumbsWrap.innerHTML = newImages.map((src, i) => `
+        <div class="cms-np-thumb${i === heroIdx ? ' is-hero' : ''}" title="${i === heroIdx ? 'Обложка карточки' : 'Нажмите, чтобы сделать обложкой'}" onclick="window.__cmsNpSetHero(${i})">
+          <img src="${src}" alt="">
+          ${i === heroIdx ? '<span class="cms-np-hero-tag">⭐ Обложка</span>' : ''}
+          <button type="button" class="cms-np-thumb-del" onclick="event.stopPropagation(); window.__cmsNpDelImg(${i});">✕</button>
+        </div>
+      `).join('');
+    };
+    window.__cmsNpSetHero = idx => { heroIdx = idx; renderNewThumbs(); };
+    window.__cmsNpDelImg = idx => { newImages.splice(idx, 1); renderNewThumbs(); };
+
+    const fileInp = modal.querySelector('#cms-np-file-inp');
+    modal.querySelector('#cms-np-pick-photos').onclick = () => fileInp.click();
+    fileInp.onchange = e => {
+      const files = e.target.files ? Array.from(e.target.files) : [];
+      if (!files.length) return;
+      files.forEach(file => {
+        readAndCompressImage(file, 1400, 0.86, dataUrl => {
+          newImages.push(dataUrl);
+          renderNewThumbs();
+        });
+      });
+      fileInp.value = '';
+    };
+
+    modal.querySelector('#cms-np-submit').onclick = () => {
+      const title = modal.querySelector('#cms-np-title').value.trim();
+      const tag = tagInp.value.trim() || (catSel.value === 'w' ? 'Шкафы · Крым' : 'Кухня · Крым');
+      const desc = modal.querySelector('#cms-np-desc').value.trim() || 'Индивидуальный проект на заказ';
+      if (!title) {
+        alert('Укажите название проекта!');
+        modal.querySelector('#cms-np-title').focus();
+        return;
+      }
+      if (!newImages.length) {
+        alert('Добавьте хотя бы одну фотографию!');
+        return;
+      }
+      const nextNum = PROJECTS.reduce((mx, p) => {
+        const m = String(p.id || '').match(/^p(\d+)/);
+        return m ? Math.max(mx, Number(m[1])) : mx;
+      }, 12) + 1;
+      const newProj = {
+        id: 'p' + nextNum + '_' + Date.now().toString(36).slice(-3),
+        title,
+        tag,
+        cat: catSel.value,
+        hero: newImages[heroIdx] || newImages[0],
+        count: newImages.length,
+        desc,
+        angles: newImages.slice()
+      };
+      PROJECTS.push(newProj);
+      closeNewProjModal();
+      const curF = getActiveFilter();
+      if (curF !== '*' && curF !== newProj.cat) {
+        document.querySelectorAll('#chips button').forEach(b => b.classList.toggle('on', b.dataset.c === '*'));
+        renderGrid('*');
+      } else {
+        renderGrid(curF);
+      }
+      setTimeout(() => {
+        const card = document.querySelector(`.work-card[data-proj-id="${newProj.id}"]`);
+        if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 80);
+    };
   };
 
   window.__cmsUpdateGalleryToolbar = function() {
@@ -1955,6 +2255,35 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
       .cms-ct-btn.replace { background: #18A0FB; }
       .cms-ct-btn.add { background: #22c55e; color: #051b0d; }
       .cms-ct-btn.del { background: #ef4444; }
+      .cms-ct-btn.rm-block { background: rgba(127,29,29,.95); color: #fecaca; border: 1px solid #ef4444; }
+      .cms-add-project-card { border: 2px dashed rgba(94,154,143,.75) !important; background: rgba(15,20,18,.65) !important; min-height: 320px; display: flex !important; align-items: center; justify-content: center; cursor: pointer; }
+      .cms-add-project-card:hover { border-color: #22c55e !important; background: rgba(34,197,94,.08) !important; }
+      .cms-add-proj-inner { text-align: center; padding: 28px 20px; display: flex; flex-direction: column; align-items: center; gap: 10px; color: #cfd8d3; }
+      .cms-add-proj-plus { width: 58px; height: 58px; border-radius: 50%; background: rgba(34,197,94,.16); border: 2px solid #22c55e; color: #22c55e; display: grid; place-items: center; font: 700 30px Inter, sans-serif; line-height: 1; }
+      .cms-add-proj-inner strong { font-family: Oswald, sans-serif; font-size: 20px; text-transform: uppercase; color: #fff; letter-spacing: .02em; }
+      .cms-add-proj-inner span { font-size: 13px; color: #9AA7A1; max-width: 240px; line-height: 1.4; }
+      #cms-new-proj-modal { position: fixed; inset: 0; z-index: 100001; background: rgba(5,7,6,.88); backdrop-filter: blur(12px); display: flex; align-items: center; justify-content: center; padding: 16px; overflow-y: auto; }
+      .cms-np-box { width: 100%; max-width: 560px; background: #0d1512; border: 1.5px solid #467A71; border-radius: 22px; padding: 22px; box-shadow: 0 24px 70px rgba(0,0,0,.9); color: #fff; font-family: Inter, sans-serif; display: flex; flex-direction: column; gap: 14px; }
+      .cms-np-head { display: flex; align-items: center; justify-content: space-between; font-size: 17px; }
+      .cms-np-close { background: #1e2d26; border: 1px solid #ffffff24; color: #fff; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 14px; }
+      .cms-np-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      @media (max-width: 520px) { .cms-np-grid { grid-template-columns: 1fr; } }
+      .cms-np-field { display: flex; flex-direction: column; gap: 6px; }
+      .cms-np-field label { font-size: 12px; color: #9AA7A1; font-weight: 600; }
+      .cms-np-field input, .cms-np-field select, .cms-np-field textarea { width: 100%; background: #141e1a; border: 1px solid #ffffff28; border-radius: 10px; padding: 10px 12px; color: #fff; font: 500 13.5px Inter, sans-serif; outline: none; }
+      .cms-np-field input:focus, .cms-np-field select:focus, .cms-np-field textarea:focus { border-color: #22c55e; }
+      .cms-np-photos-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+      .cms-np-pick-btn { background: #18A0FB; color: #fff; border: none; border-radius: 10px; padding: 9px 14px; font: 700 13px Inter, sans-serif; cursor: pointer; }
+      .cms-np-cnt { font-size: 12.5px; color: #9AA7A1; font-weight: 600; }
+      .cms-np-thumbs { display: flex; flex-wrap: wrap; gap: 8px; max-height: 170px; overflow-y: auto; padding-top: 4px; }
+      .cms-np-thumb { position: relative; width: 72px; height: 72px; border-radius: 10px; overflow: hidden; border: 2px solid #ffffff24; cursor: pointer; }
+      .cms-np-thumb.is-hero { border-color: #eab308; box-shadow: 0 0 12px rgba(234,179,8,.45); }
+      .cms-np-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+      .cms-np-hero-tag { position: absolute; left: 2px; right: 2px; bottom: 2px; background: rgba(0,0,0,.8); color: #fde047; font-size: 9px; font-weight: 700; text-align: center; border-radius: 4px; padding: 1px 2px; }
+      .cms-np-thumb-del { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; border-radius: 50%; background: #ef4444; color: #fff; border: none; font: 700 10px Inter, sans-serif; cursor: pointer; line-height: 18px; padding: 0; }
+      .cms-np-actions { display: flex; gap: 10px; flex-wrap: wrap; padding-top: 4px; }
+      .cms-np-submit { flex: 1; background: #22c55e; color: #051b0d; border: none; border-radius: 12px; padding: 11px 16px; font: 700 13.5px Inter, sans-serif; cursor: pointer; }
+      .cms-np-cancel { background: #1e2d26; color: #cfd8d3; border: 1px solid #ffffff24; border-radius: 12px; padding: 11px 16px; font: 600 13px Inter, sans-serif; cursor: pointer; }
     `;
     document.head.appendChild(st);
 
@@ -1984,9 +2313,10 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
         <button type="button" data-act="font-dec" title="Уменьшить шрифт">A−</button>
         <button type="button" data-act="font-inc" title="Увеличить шрифт">A+</button>
       </div>
-      <div class="cms-grp" title="Управление фотографиями и ракурсами">
+      <div class="cms-grp" title="Управление фотографиями, ракурсами и блоками в Работах">
         <button type="button" class="cms-photo-btn" id="cms-btn-change-photo" title="Заменить выбранное или открытое фото">📷 Заменить</button>
         <button type="button" class="cms-add-btn" id="cms-btn-add-photo" title="Добавить новое фото (ракурс) в проект">➕ Добавить фото</button>
+        <button type="button" id="cms-btn-new-proj" title="Добавить новый блок с фото в раздел Работы" style="background:#0f766e; border-color:#14b8a6; color:#fff; font-weight:700;">🧱 + Блок в Работы</button>
         <button type="button" class="cms-del-btn" id="cms-btn-del-photo" title="Удалить текущее фото (ракурс) из проекта">🗑️ Удалить фото</button>
         <input type="file" id="cms-file-input" accept="image/*" style="display:none">
       </div>
@@ -2029,7 +2359,7 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
     // Интеллектуальный перехват кликов с кнопкой подтверждения действия
     document.addEventListener('click', e => {
       if (!isEditActive) return;
-      if (e.target.closest('#cms-studio-bar') || e.target.closest('#cms-action-popover') || e.target.closest('#cms-gl-toolbar') || e.target.closest('.cms-thumb-del') || e.target.closest('.cms-thumb-add') || e.target.closest('.cms-card-tools')) return;
+      if (e.target.closest('#cms-studio-bar') || e.target.closest('#cms-action-popover') || e.target.closest('#cms-gl-toolbar') || e.target.closest('.cms-thumb-del') || e.target.closest('.cms-thumb-add') || e.target.closest('.cms-card-tools') || e.target.closest('#cms-new-proj-modal') || e.target.closest('.cms-add-project-card')) return;
 
       // Если включен режим простого просмотра — не мешаем обычному взаимодействию!
       if (editSubMode === 'browse') return;
@@ -2227,6 +2557,10 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
       alert('Откройте нужный проект в разделе «Работы» (в режиме просмотра) или нажмите на карточку проекта, чтобы добавить в него новые фото (ракурсы)!');
     };
 
+    document.getElementById('cms-btn-new-proj').onclick = () => {
+      window.__cmsOpenNewProjectModal();
+    };
+
     document.getElementById('cms-btn-del-photo').onclick = () => {
       const resolved = resolveProjectFromElement(selectedImg || selectedEl);
       if (resolved && resolved.proj) {
@@ -2290,11 +2624,12 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
       const cStyle = clone.querySelector('#cms-studio-style'); if (cStyle) cStyle.remove();
       const cPop = clone.querySelector('#cms-action-popover'); if (cPop) cPop.remove();
       const cGlTb = clone.querySelector('#cms-gl-toolbar'); if (cGlTb) cGlTb.remove();
-      clone.querySelectorAll('.cms-thumb-del, .cms-thumb-add, .cms-card-tools').forEach(el => el.remove());
+      const cNpModal = clone.querySelector('#cms-new-proj-modal'); if (cNpModal) cNpModal.remove();
+      clone.querySelectorAll('.cms-thumb-del, .cms-thumb-add, .cms-card-tools, .cms-add-project-card').forEach(el => el.remove());
       const cGlModal = clone.querySelector('#gallery-modal'); if (cGlModal) cGlModal.classList.remove('open');
       if (clone.body) clone.body.style.overflow = '';
       const ld = clone.querySelector('#ld'); if (ld) ld.remove();
-      clone.querySelectorAll('#v1, #v2').forEach(v => v.removeAttribute('src'));
+      clone.querySelectorAll('#v1, #v2').forEach(v => { v.removeAttribute('src'); v.removeAttribute('data-blob-ready'); });
       clone.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
       clone.querySelectorAll('.cms-has-outline, .cms-is-editing, .cms-selected-el, .cms-img-outline').forEach(el => {
         el.classList.remove('cms-has-outline', 'cms-is-editing', 'cms-selected-el', 'cms-img-outline');
@@ -2318,6 +2653,7 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
       closeActionPopover();
       mo.disconnect();
       const cGlTb = document.getElementById('cms-gl-toolbar'); if (cGlTb) cGlTb.remove();
+      const cNpModal = document.getElementById('cms-new-proj-modal'); if (cNpModal) cNpModal.remove();
       renderGrid(getActiveFilter());
       if (document.getElementById('gallery-modal').classList.contains('open')) updateGalleryUI();
       document.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
