@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Кухни и шкафы на заказ в Евпатории и Крыму</title>
@@ -273,6 +273,30 @@ footer{padding:28px clamp(20px,5vw,72px) calc(28px + env(safe-area-inset-bottom,
   .skip-anim-btn { height: 38px; padding: 0 14px; font-size: 12px; }
   .hint { display: none !important; }
 }
+
+/* Появление карточек работ при прокрутке. Правила расположены после базовых стилей карточек,
+   чтобы их transition не перезаписывался стилями .work-card. */
+#grid .work-card.rv {
+  opacity: 0;
+  transform: translate3d(0, 34px, 0);
+  transition: opacity .72s cubic-bezier(.2,.7,.2,1), transform .72s cubic-bezier(.2,.7,.2,1), border-color .25s, box-shadow .25s;
+  will-change: opacity, transform;
+}
+#grid .work-card.rv.in {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+#grid .work-card.rv.in:hover {
+  transform: translate3d(0, -4px, 0);
+}
+@media (prefers-reduced-motion: reduce) {
+  #grid .work-card.rv, #grid .work-card.rv.in {
+    opacity: 1;
+    transform: none;
+    transition: none;
+    will-change: auto;
+  }
+}
 </style></head><body id="top">
 <div id="ld">ЗАГРУЗКА <span id="pc">&nbsp;0</span>%</div>
 <header>
@@ -293,7 +317,7 @@ footer{padding:28px clamp(20px,5vw,72px) calc(28px + env(safe-area-inset-bottom,
   </div>
 </header>
 
-<div id="scene"><div class="stick"><video id="v1" data-src="video/stage1.mp4" data-src-m="video/stage1_m.mp4" muted playsinline preload="auto"></video><video id="v2" data-src="video/stage2.mp4" data-src-m="video/stage2_m.mp4" muted playsinline preload="auto"></video><div class="shade"></div>
+<div id="scene"><div class="stick"><video id="v1" data-src="video/stage1.mp4" data-src-m="video/stage1_m.mp4" muted playsinline preload="auto"></video><video id="v2" data-src="video/stage2.mp4" data-src-m="video/stage2_m.mp4" muted playsinline preload="none"></video><div class="shade"></div>
 <div class="st on" id="st-consult">
   <small>01 — КОНСУЛЬТАЦИЯ</small>
   <h2>Консультация</h2>
@@ -531,16 +555,36 @@ function stepAt(p){
   return STEPS.length-1;
 }
 
+let stage2VideoLoaded = false;
+function loadStage2Video(){
+  if(stage2VideoLoaded || !V2) return;
+  const isMob = Math.min(screen.width, window.innerWidth) < 768;
+  const src = (isMob && V2.dataset.srcM) ? V2.dataset.srcM : V2.dataset.src;
+  if(!src) return;
+  stage2VideoLoaded = true;
+  V2.preload = 'auto';
+  V2.src = src;
+  V2.load();
+}
+
 function tick(now){
   now=now||performance.now();
   const dt=Math.min(.1,Math.max(.001,(now-lastT)/1000));lastT=now;
   updateTarget();
-  cur+=(tg-cur)*(1-Math.exp(-dt*14));
+  // На консультации делаем более мягкое следование видео за прокруткой:
+  // частые резкие перемотки заметнее именно на коротких фрагментах первого ролика.
+  const targetStage = STEPS[stepAt(tg)];
+  const followRate = targetStage && targetStage.v === 1 ? 8 : 14;
+  cur+=(tg-cur)*(1-Math.exp(-dt*followRate));
   if(Math.abs(tg-cur)<.00005)cur=tg;
   const i=stepAt(cur),s=STEPS[i],u=Math.min(1,Math.max(0,(cur-s.p0)/(s.p1-s.p0))),k=Math.min(1,u/(1-HOLD));
   const time=s.t0+(s.t1-s.t0)*k;
   if(s.v===1){if(activeV!==1){V2.style.opacity=0;activeV=1}seek(V1,time)}
-  else{if(activeV!==2){seek(V2,s.t0);V2.style.opacity=1;activeV=2}seek(V2,time)}
+  else{
+    loadStage2Video();
+    if(activeV!==2){seek(V2,s.t0);V2.style.opacity=1;activeV=2}
+    seek(V2,time);
+  }
   showStage(s.st,s.sub);
   if(hintEl)hintEl.style.opacity=cur>.01?0:1;
   requestAnimationFrame(tick);
@@ -622,14 +666,19 @@ function rs(){}
       setTimeout(() => { if(ld && ld.parentNode) ld.parentNode.removeChild(ld); }, 400);
     }
   }
-  [V1, V2].forEach(v => {
-    if(!v) return;
-    v.muted = true;
-    v.pause();
-    const u = (isMob && v.dataset.srcM) ? v.dataset.srcM : v.dataset.src;
-    v.src = u;
-    v.load();
-  });
+  if(V1){
+    V1.muted = true;
+    V1.pause();
+    V1.preload = 'auto';
+    const u = (isMob && V1.dataset.srcM) ? V1.dataset.srcM : V1.dataset.src;
+    V1.src = u;
+    V1.load();
+  }
+  if(V2){
+    V2.muted = true;
+    V2.pause();
+    V2.preload = 'none';
+  }
   if(V1){
     V1.addEventListener('loadeddata', () => { if(pc) pc.textContent = '100'; hide(); }, {once: true});
     V1.addEventListener('canplay', () => { if(pc) pc.textContent = '100'; hide(); }, {once: true});
@@ -1210,8 +1259,8 @@ const PROJECTS = [
 function renderGrid(filter) {
   const gr = document.getElementById('grid');
   if (!gr) return;
-  gr.innerHTML = PROJECTS.filter(p => filter === '*' || p.cat === filter).map(p => `
-    <div class="work-card rv in" data-proj-id="${p.id}" onclick="openGallery('${p.id}')">
+  gr.innerHTML = PROJECTS.filter(p => filter === '*' || p.cat === filter).map((p, i) => `
+    <div class="work-card rv" style="transition-delay:${Math.min(i % 6, 5) * 90}ms" data-proj-id="${p.id}" onclick="openGallery('${p.id}')">
       <div class="work-img-box">
         <img src="${p.hero}" alt="${p.title}" loading="lazy" decoding="async">
         <div class="work-badge-count">📷 ${p.count} ракурсов</div>
@@ -1271,7 +1320,7 @@ function updateGalleryUI() {
   const thumbs = document.getElementById('gl-thumbs');
   thumbs.innerHTML = curProj.angles.map((a, i) => `
     <div class="gl-thumb${i === curAngleIdx ? ' active' : ''}" onclick="setGalleryAngle(${i})">
-      <img src="${a}" alt="" loading="lazy">
+      <img src="${a}" alt="" loading="lazy" decoding="async">
     </div>
   `).join('');
 }
@@ -1321,8 +1370,18 @@ if (glWrap) {
   }, { passive: true });
 }
 
-const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}}),{threshold:.15});
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}}),{threshold:.05,rootMargin:'0px 0px -8% 0px'});
 document.querySelectorAll('.rv').forEach(e=>io.observe(e));
+// Карточки проектов добавляются заново при переключении фильтров —
+// наблюдаем за ними повторно, чтобы анимация срабатывала при каждом просмотре.
+const workGrid = document.getElementById('grid');
+function observeWorkCards(){
+  if(!workGrid) return;
+  workGrid.querySelectorAll('.work-card.rv:not(.in)').forEach(card => io.observe(card));
+}
+// Карточки первой отрисовки и карточки после смены фильтра.
+observeWorkCards();
+if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childList: true });
 
 // ===== ВИЗУАЛЬНЫЙ РЕДАКТОР С ПОДТВЕРЖДЕНИЕМ ДЕЙСТВИЙ (БЕЗ ГЛЮКОВ ИНТЕРФЕЙСА) =====
 (function(){
