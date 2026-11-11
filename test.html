@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Кухни и шкафы на заказ в Евпатории и Крыму</title>
@@ -973,6 +973,55 @@ function selectQuizMessenger(name, btnEl) {
   btnEl.classList.add('selected');
 }
 
+// Настройки бота мессенджера MAX (https://dev.max.ru)
+const MAX_BOT_CONFIG = {
+  accessToken: '', // Вставьте сюда токен от @MasterBot в MAX
+  userId: '',      // Ваш user_id в MAX (или chatId)
+  chatId: '',
+  webhookUrl: 'http://localhost:3847/lead'
+};
+
+function sendLeadToMaxBot(lead) {
+  const maxText =
+    '🔔 НОВАЯ ЗАЯВКА С САЙТА «СТАТУС»!\n\n' +
+    '👤 Имя клиента: ' + (lead.name || 'Клиент с сайта') + '\n' +
+    '📱 Телефон: ' + (lead.phone || 'Не указан') + '\n' +
+    '💬 Удобный способ связи: ' + (lead.messenger || 'MAX') + '\n\n' +
+    '📋 ПАРАМЕТРЫ КУХНИ:\n' +
+    '• Планировка: ' + (lead.shape || 'Не указана') + '\n' +
+    '• Размеры: ' + (lead.size || 'Нужен замер') + '\n' +
+    '• Фасады: ' + (lead.facades || 'Консультация') + '\n' +
+    '• Столешница: ' + (lead.countertop || 'Консультация') + '\n' +
+    '• Фурнитура: ' + (lead.hardware || 'Консультация') + '\n' +
+    '• Бюджет: ' + (lead.budget || 'Не указан') + '\n' +
+    '• Сроки: ' + (lead.timeline || 'Не указано') + '\n\n' +
+    '✅ Бесплатный выезд мастера на замер зафиксирован.';
+
+  // 1. Отправка напрямую через официальный Bot API мессенджера MAX (если указаны токен и ID)
+  if (MAX_BOT_CONFIG.accessToken && (MAX_BOT_CONFIG.userId || MAX_BOT_CONFIG.chatId)) {
+    const query = MAX_BOT_CONFIG.userId
+      ? '?user_id=' + encodeURIComponent(MAX_BOT_CONFIG.userId)
+      : '?chat_id=' + encodeURIComponent(MAX_BOT_CONFIG.chatId);
+    fetch('https://platform-api.max.ru/messages' + query, {
+      method: 'POST',
+      headers: {
+        'Authorization': MAX_BOT_CONFIG.accessToken,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ text: maxText })
+    }).catch(() => {});
+  }
+
+  // 2. Дублирование на сервер бота max_bot.js (если запущен локально или на сервере)
+  if (MAX_BOT_CONFIG.webhookUrl) {
+    fetch(MAX_BOT_CONFIG.webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(lead)
+    }).catch(() => {});
+  }
+}
+
 function submitQuizLead() {
   const phone = document.getElementById('quiz-phone').value.trim();
   const name = document.getElementById('quiz-name').value.trim() || 'Клиент с сайта';
@@ -984,6 +1033,8 @@ function submitQuizLead() {
 
   quizAnswers.phone = phone;
   quizAnswers.name = name;
+
+  sendLeadToMaxBot(quizAnswers);
 
   const msgText = encodeURIComponent(
     'Здравствуйте, Юрий! Меня зовут ' + name + '. Я заполнил опросник на сайте мастерской:\n' +
@@ -1267,7 +1318,6 @@ function getActiveFilter() {
   const activeBtn = document.querySelector('#chips button.on');
   return activeBtn ? (activeBtn.dataset.c || '*') : '*';
 }
-
 
 function syncProjectCount(proj) {
   if (!proj) return;
