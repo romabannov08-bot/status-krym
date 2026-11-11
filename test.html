@@ -1256,23 +1256,65 @@ const PROJECTS = [
     }
 ];
 
+function pluralizeAngles(n) {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return 'ракурс';
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return 'ракурса';
+  return 'ракурсов';
+}
+
+function getActiveFilter() {
+  const activeBtn = document.querySelector('#chips button.on');
+  return activeBtn ? (activeBtn.dataset.c || '*') : '*';
+}
+
+function syncProjectCount(proj) {
+  if (!proj) return;
+  if (!Array.isArray(proj.angles)) proj.angles = proj.hero ? [proj.hero] : [];
+  proj.count = proj.angles.length;
+  if (proj.angles.length > 0 && (!proj.hero || !proj.angles.includes(proj.hero))) {
+    proj.hero = proj.angles[0];
+  }
+  const card = document.querySelector(`.work-card[data-proj-id="${proj.id}"]`);
+  if (card) {
+    const badge = card.querySelector('.work-badge-count');
+    if (badge) badge.textContent = `📷 ${proj.count} ${pluralizeAngles(proj.count)}`;
+    const more = card.querySelector('.work-details span.more');
+    if (more) more.textContent = `Смотреть все ${proj.count} фото →`;
+    const img = card.querySelector('.work-img-box img');
+    if (img && proj.hero) img.src = proj.hero;
+  }
+}
+
 function renderGrid(filter) {
   const gr = document.getElementById('grid');
   if (!gr) return;
-  gr.innerHTML = PROJECTS.filter(p => filter === '*' || p.cat === filter).map((p, i) => `
+  const f = filter || getActiveFilter();
+  const isCms = window.__statusCmsActive === true;
+  gr.innerHTML = PROJECTS.filter(p => f === '*' || p.cat === f).map((p, i) => {
+    const cnt = Array.isArray(p.angles) ? p.angles.length : (p.count || 1);
+    p.count = cnt;
+    return `
     <div class="work-card rv" style="transition-delay:${Math.min(i % 6, 5) * 90}ms" data-proj-id="${p.id}" onclick="openGallery('${p.id}')">
       <div class="work-img-box">
         <img src="${p.hero}" alt="${p.title}" loading="lazy" decoding="async">
-        <div class="work-badge-count">📷 ${p.count} ракурсов</div>
+        ${isCms ? `
+        <div class="cms-card-tools" onclick="event.stopPropagation()">
+          <button type="button" class="cms-ct-btn replace" title="Заменить обложку / фото" onclick="window.__cmsCardReplace && window.__cmsCardReplace('${p.id}')">📷</button>
+          <button type="button" class="cms-ct-btn add" title="Добавить фото (ракурс) в этот проект" onclick="window.__cmsCardAdd && window.__cmsCardAdd('${p.id}')">＋ Фото</button>
+          <button type="button" class="cms-ct-btn del" title="Удалить ракурс из проекта" onclick="window.__cmsCardDel && window.__cmsCardDel('${p.id}')">🗑️</button>
+        </div>` : ''}
+        <div class="work-badge-count">📷 ${cnt} ${pluralizeAngles(cnt)}</div>
         <div class="work-tag">${p.tag}</div>
       </div>
       <div class="work-details">
         <h3>${p.title}</h3>
         <p>${p.desc}</p>
-        <span class="more">Смотреть все ${p.count} фото →</span>
+        <span class="more">Смотреть все ${cnt} фото →</span>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 renderGrid('*');
 
@@ -1297,32 +1339,43 @@ function closeGallery() {
   document.body.style.overflow = '';
 }
 function changeGalleryAngle(dir) {
-  if (!curProj) return;
+  if (!curProj || !curProj.angles.length) return;
   curAngleIdx = (curAngleIdx + dir + curProj.angles.length) % curProj.angles.length;
   updateGalleryUI();
 }
 function setGalleryAngle(idx) {
-  if (!curProj) return;
-  curAngleIdx = idx;
+  if (!curProj || !curProj.angles.length) return;
+  curAngleIdx = Math.max(0, Math.min(curProj.angles.length - 1, idx));
   updateGalleryUI();
 }
 function updateGalleryUI() {
+  if (!curProj) return;
+  syncProjectCount(curProj);
+  if (curAngleIdx >= curProj.angles.length) curAngleIdx = Math.max(0, curProj.angles.length - 1);
   document.getElementById('gl-title').textContent = curProj.title;
   document.getElementById('gl-desc').textContent = curProj.desc;
-  document.getElementById('gl-counter').textContent = 'Ракурс ' + (curAngleIdx + 1) + ' из ' + curProj.angles.length;
-  document.getElementById('gl-main-img').src = curProj.angles[curAngleIdx];
+  document.getElementById('gl-counter').textContent = 'Ракурс ' + (curProj.angles.length ? (curAngleIdx + 1) : 0) + ' из ' + curProj.angles.length;
+  document.getElementById('gl-main-img').src = curProj.angles[curAngleIdx] || '';
   if (curProj.angles.length > 1) {
     const nextIdx = (curAngleIdx + 1) % curProj.angles.length;
     const prevIdx = (curAngleIdx - 1 + curProj.angles.length) % curProj.angles.length;
     new Image().src = curProj.angles[nextIdx];
     new Image().src = curProj.angles[prevIdx];
   }
+  const isCms = window.__statusCmsActive === true;
   const thumbs = document.getElementById('gl-thumbs');
   thumbs.innerHTML = curProj.angles.map((a, i) => `
-    <div class="gl-thumb${i === curAngleIdx ? ' active' : ''}" onclick="setGalleryAngle(${i})">
+    <div class="gl-thumb${i === curAngleIdx ? ' active' : ''}" onclick="setGalleryAngle(${i})" style="position:relative;">
       <img src="${a}" alt="" loading="lazy" decoding="async">
+      ${isCms ? `<button type="button" class="cms-thumb-del" title="Удалить этот ракурс" onclick="event.stopPropagation(); window.__cmsDeleteAngle && window.__cmsDeleteAngle(${i});">✕</button>` : ''}
     </div>
-  `).join('');
+  `).join('') + (isCms ? `
+    <div class="gl-thumb cms-thumb-add" title="Добавить новое фото (ракурс)" onclick="window.__cmsAddAngles && window.__cmsAddAngles()">
+      <span>＋</span>
+      <small>Фото</small>
+    </div>
+  ` : '');
+  if (window.__cmsUpdateGalleryToolbar) window.__cmsUpdateGalleryToolbar();
 }
 
 addEventListener('keydown', e => {
@@ -1386,9 +1439,12 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
 // ===== ВИЗУАЛЬНЫЙ РЕДАКТОР С ПОДТВЕРЖДЕНИЕМ ДЕЙСТВИЙ (БЕЗ ГЛЮКОВ ИНТЕРФЕЙСА) =====
 (function(){
   let isEditActive = location.search.includes('edit=1') || location.hash === '#edit' || sessionStorage.getItem('status_cms_edit') === '1';
+  window.__statusCmsActive = isEditActive;
   let editSubMode = 'edit'; // 'edit' = выбор и правка контента, 'browse' = обычный просмотр и клики
   let fClicks = 0, fTimer = null, selectedEl = null, selectedImg = null;
   let popoverEl = null;
+  let fileActionMode = 'replace'; // 'replace' | 'add'
+  let targetProjectForPhoto = null;
 
   const ftr = document.querySelector('footer span');
   if (ftr) {
@@ -1408,15 +1464,157 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
     if (popoverEl) { popoverEl.remove(); popoverEl = null; }
   }
 
-  function showActionPopover(target, type, onEdit, onAction) {
+  function resolveProjectFromElement(el) {
+    const glModal = document.getElementById('gallery-modal');
+    if (glModal && glModal.classList.contains('open') && curProj) {
+      return { proj: curProj, inGallery: true, angleIdx: curAngleIdx };
+    }
+    if (el) {
+      const card = el.closest('.work-card[data-proj-id]');
+      if (card) {
+        const pid = card.getAttribute('data-proj-id');
+        const proj = PROJECTS.find(p => p.id === pid);
+        if (proj) {
+          const heroIdx = Math.max(0, proj.angles.indexOf(proj.hero));
+          return { proj, inGallery: false, angleIdx: heroIdx };
+        }
+      }
+    }
+    return null;
+  }
+
+  function deleteAngleFromProject(proj, idxToRemove) {
+    if (!proj || !Array.isArray(proj.angles)) return;
+    if (proj.angles.length <= 1) {
+      if (confirm(`В проекте «${proj.title}» осталось всего 1 фото.\nУдалить всю карточку проекта из раздела «Работы»?`)) {
+        const pIdx = PROJECTS.findIndex(p => p.id === proj.id);
+        if (pIdx !== -1) PROJECTS.splice(pIdx, 1);
+        closeGallery();
+        renderGrid(getActiveFilter());
+      }
+      return;
+    }
+    const removedUrl = proj.angles[idxToRemove];
+    proj.angles.splice(idxToRemove, 1);
+    if (proj.hero === removedUrl) {
+      proj.hero = proj.angles[0];
+    }
+    syncProjectCount(proj);
+    if (curProj && curProj.id === proj.id) {
+      if (curAngleIdx >= proj.angles.length) {
+        curAngleIdx = Math.max(0, proj.angles.length - 1);
+      } else if (idxToRemove < curAngleIdx) {
+        curAngleIdx = Math.max(0, curAngleIdx - 1);
+      }
+      updateGalleryUI();
+    }
+  }
+
+  window.__cmsDeleteAngle = function(idx) {
+    if (!curProj) return;
+    const targetIdx = typeof idx === 'number' ? idx : curAngleIdx;
+    deleteAngleFromProject(curProj, targetIdx);
+  };
+
+  window.__cmsAddAngles = function(projOverride) {
+    const targetProj = projOverride || curProj;
+    if (!targetProj) {
+      alert('Сначала откройте проект в разделе «Работы» или кликните по карточке проекта, в который хотите добавить фото!');
+      return;
+    }
+    targetProjectForPhoto = targetProj;
+    fileActionMode = 'add';
+    const fileInp = document.getElementById('cms-file-input');
+    if (fileInp) {
+      fileInp.setAttribute('multiple', 'multiple');
+      fileInp.click();
+    }
+  };
+
+  window.__cmsReplaceCurrentAngle = function() {
+    if (!curProj) return;
+    selectedImg = document.getElementById('gl-main-img');
+    targetProjectForPhoto = curProj;
+    fileActionMode = 'replace';
+    const fileInp = document.getElementById('cms-file-input');
+    if (fileInp) {
+      fileInp.removeAttribute('multiple');
+      fileInp.click();
+    }
+  };
+
+  window.__cmsSetHeroAngle = function() {
+    if (!curProj || !curProj.angles[curAngleIdx]) return;
+    curProj.hero = curProj.angles[curAngleIdx];
+    syncProjectCount(curProj);
+    updateGalleryUI();
+  };
+
+  window.__cmsCardReplace = function(pId) {
+    const proj = PROJECTS.find(p => p.id === pId);
+    if (!proj) return;
+    const cardImg = document.querySelector(`.work-card[data-proj-id="${pId}"] .work-img-box img`);
+    if (cardImg) selectedImg = cardImg;
+    targetProjectForPhoto = proj;
+    fileActionMode = 'replace';
+    const fileInp = document.getElementById('cms-file-input');
+    if (fileInp) {
+      fileInp.removeAttribute('multiple');
+      fileInp.click();
+    }
+  };
+
+  window.__cmsCardAdd = function(pId) {
+    const proj = PROJECTS.find(p => p.id === pId);
+    if (!proj) return;
+    window.__cmsAddAngles(proj);
+  };
+
+  window.__cmsCardDel = function(pId) {
+    const proj = PROJECTS.find(p => p.id === pId);
+    if (!proj) return;
+    const heroIdx = Math.max(0, proj.angles.indexOf(proj.hero));
+    deleteAngleFromProject(proj, heroIdx);
+  };
+
+  window.__cmsUpdateGalleryToolbar = function() {
+    const glBox = document.querySelector('#gallery-modal .gl-box');
+    if (!glBox) return;
+    let tb = document.getElementById('cms-gl-toolbar');
+    if (!isEditActive) {
+      if (tb) tb.remove();
+      return;
+    }
+    if (!tb) {
+      tb = document.createElement('div');
+      tb.id = 'cms-gl-toolbar';
+      tb.className = 'cms-gl-toolbar';
+      const header = glBox.querySelector('.gl-header');
+      if (header && header.nextSibling) {
+        glBox.insertBefore(tb, header.nextSibling);
+      } else {
+        glBox.prepend(tb);
+      }
+    }
+    const isHero = curProj && curProj.angles[curAngleIdx] === curProj.hero;
+    tb.innerHTML = `
+      <span class="cms-gl-badge">Конструктор фото (${curProj ? curProj.count : 0} ${pluralizeAngles(curProj ? curProj.count : 0)}):</span>
+      <button type="button" class="cms-gl-btn replace" onclick="window.__cmsReplaceCurrentAngle()">📷 Заменить фото</button>
+      <button type="button" class="cms-gl-btn add" onclick="window.__cmsAddAngles()">➕ Добавить фото</button>
+      <button type="button" class="cms-gl-btn del" onclick="window.__cmsDeleteAngle(${curAngleIdx})">🗑️ Удалить ракурс</button>
+      <button type="button" class="cms-gl-btn hero${isHero ? ' is-hero' : ''}" onclick="window.__cmsSetHeroAngle()">${isHero ? '⭐ На обложке карточки' : '⭐ Сделать обложкой'}</button>
+    `;
+  };
+
+  function showActionPopover(target, type, onEdit, onAction, extraOpts) {
     closeActionPopover();
     const r = target.getBoundingClientRect();
     popoverEl = document.createElement('div');
     popoverEl.id = 'cms-action-popover';
     popoverEl.style.cssText = `
       position: fixed;
-      top: ${Math.max(10, r.top - 46)}px;
-      left: ${Math.max(10, Math.min(window.innerWidth - 280, r.left))}px;
+      top: ${Math.max(10, r.top - 48)}px;
+      left: ${Math.max(10, Math.min(window.innerWidth - 420, r.left))}px;
       z-index: 100000;
       background: #0d1512;
       border: 1.5px solid #467A71;
@@ -1424,6 +1622,7 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
       border-radius: 99px;
       padding: 5px 8px;
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       gap: 6px;
       font: 600 12px Inter, sans-serif;
@@ -1432,9 +1631,12 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
     `;
     
     if (type === 'image') {
+      const hasProj = extraOpts && extraOpts.proj;
       popoverEl.innerHTML = `
-        <button type="button" id="cms-act-edit" style="background:#18A0FB;color:#fff;border:none;border-radius:99px;padding:5px 12px;font:700 11.5px Inter,sans-serif;cursor:pointer;">📷 Заменить фото</button>
-        <button type="button" id="cms-act-click" style="background:#1e2d26;color:#cfd8d3;border:1px solid #ffffff24;border-radius:99px;padding:5px 10px;font:600 11.5px Inter,sans-serif;cursor:pointer;">👁️ Открыть / Просмотр</button>
+        <button type="button" id="cms-act-edit" style="background:#18A0FB;color:#fff;border:none;border-radius:99px;padding:5px 11px;font:700 11.5px Inter,sans-serif;cursor:pointer;">📷 Заменить</button>
+        ${hasProj ? `<button type="button" id="cms-act-add" style="background:#22c55e;color:#051b0d;border:none;border-radius:99px;padding:5px 11px;font:700 11.5px Inter,sans-serif;cursor:pointer;">➕ Добавить фото</button>` : ''}
+        ${hasProj ? `<button type="button" id="cms-act-del" style="background:#ef4444;color:#fff;border:none;border-radius:99px;padding:5px 11px;font:700 11.5px Inter,sans-serif;cursor:pointer;">🗑️ Удалить фото</button>` : ''}
+        <button type="button" id="cms-act-click" style="background:#1e2d26;color:#cfd8d3;border:1px solid #ffffff24;border-radius:99px;padding:5px 10px;font:600 11.5px Inter,sans-serif;cursor:pointer;">👁️ Просмотр</button>
         <button type="button" id="cms-act-close" style="background:none;color:#9AA7A1;border:none;padding:2px 8px;cursor:pointer;font-size:14px;">✕</button>
       `;
     } else {
@@ -1452,6 +1654,22 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
       closeActionPopover();
       if (onEdit) onEdit();
     };
+    const btnAdd = document.getElementById('cms-act-add');
+    if (btnAdd && extraOpts && extraOpts.onAdd) {
+      btnAdd.onclick = (ev) => {
+        ev.stopPropagation();
+        closeActionPopover();
+        extraOpts.onAdd();
+      };
+    }
+    const btnDel = document.getElementById('cms-act-del');
+    if (btnDel && extraOpts && extraOpts.onDel) {
+      btnDel.onclick = (ev) => {
+        ev.stopPropagation();
+        closeActionPopover();
+        extraOpts.onDel();
+      };
+    }
     document.getElementById('cms-act-click').onclick = (ev) => {
       ev.stopPropagation();
       closeActionPopover();
@@ -1466,7 +1684,7 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
   function applyVisualOutlines() {
     if (!isEditActive) return;
     document.querySelectorAll(EDITABLE_SEL).forEach(el => {
-      if (el.closest('#cms-studio-bar') || el.closest('#cms-action-popover')) return;
+      if (el.closest('#cms-studio-bar') || el.closest('#cms-action-popover') || el.closest('#cms-gl-toolbar')) return;
       if (editSubMode === 'edit') {
         el.classList.add('cms-has-outline');
       } else {
@@ -1500,6 +1718,7 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
       if (p) proj.desc = p.textContent.trim();
       if (tag) proj.tag = tag.textContent.trim();
       if (img && img.getAttribute('src')) proj.hero = img.getAttribute('src');
+      proj.count = Array.isArray(proj.angles) ? proj.angles.length : (proj.count || 1);
     });
     const glModal = document.getElementById('gallery-modal');
     if (glModal && glModal.classList.contains('open') && curProj) {
@@ -1508,9 +1727,10 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
       const glMainImg = document.getElementById('gl-main-img');
       if (glTitle) curProj.title = glTitle.textContent.trim();
       if (glDesc) curProj.desc = glDesc.textContent.trim();
-      if (glMainImg && glMainImg.getAttribute('src')) {
+      if (glMainImg && glMainImg.getAttribute('src') && curProj.angles[curAngleIdx] !== undefined) {
         curProj.angles[curAngleIdx] = glMainImg.getAttribute('src');
       }
+      syncProjectCount(curProj);
     }
   }
 
@@ -1534,6 +1754,7 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
 
   function enableStudioEditor() {
     isEditActive = true;
+    window.__statusCmsActive = true;
     sessionStorage.setItem('status_cms_edit', '1');
     if (document.getElementById('cms-studio-bar')) return;
 
@@ -1551,7 +1772,32 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
       #cms-studio-bar button.cms-mode-active { background: #22c55e !important; color: #051b0d !important; font-weight: 700; }
       #cms-studio-bar button.cms-primary { background: #22c55e; border-color: #22c55e; color: #051b0d; font-weight: 700; padding: 7px 14px; }
       #cms-studio-bar button.cms-photo-btn { background: #18A0FB; border-color: #18A0FB; color: #fff; font-weight: 700; }
+      #cms-studio-bar button.cms-add-btn { background: #16a34a; border-color: #22c55e; color: #fff; font-weight: 700; }
+      #cms-studio-bar button.cms-del-btn { background: #dc2626; border-color: #ef4444; color: #fff; font-weight: 700; }
       #cms-studio-bar .cms-lbl { font-size: 11px; color: #9AA7A1; margin-right: 4px; }
+      .cms-gl-toolbar { width: 100%; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; background: rgba(14,22,18,.95); border: 1.5px solid #467A71; border-radius: 14px; padding: 7px 12px; box-shadow: 0 10px 30px rgba(0,0,0,.6); }
+      #gallery-modal.open { padding-bottom: 120px !important; }
+      #gallery-modal.open .gl-img-wrap, #gallery-modal.open .gl-img { max-height: 52vh !important; }
+      #gallery-modal.open .gl-box { gap: 10px !important; }
+      .cms-gl-badge { font: 700 12px Inter, sans-serif; color: #9AA7A1; margin-right: 4px; }
+      .cms-gl-btn { border: none; border-radius: 99px; padding: 6px 13px; font: 700 12px Inter, sans-serif; cursor: pointer; transition: transform .15s, opacity .15s; }
+      .cms-gl-btn:hover { transform: translateY(-1px); opacity: .95; }
+      .cms-gl-btn.replace { background: #18A0FB; color: #fff; }
+      .cms-gl-btn.add { background: #22c55e; color: #051b0d; }
+      .cms-gl-btn.del { background: #ef4444; color: #fff; }
+      .cms-gl-btn.hero { background: #1e2d26; color: #cfd8d3; border: 1px solid #ffffff30; }
+      .cms-gl-btn.hero.is-hero { background: rgba(234,179,8,.2); color: #fde047; border-color: #eab308; }
+      .cms-thumb-del { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; border-radius: 50%; background: rgba(239,68,68,.95); color: #fff; border: none; font: 700 10px Inter, sans-serif; line-height: 18px; text-align: center; padding: 0; cursor: pointer; z-index: 5; box-shadow: 0 2px 6px rgba(0,0,0,.6); }
+      .cms-thumb-del:hover { transform: scale(1.12); background: #dc2626; }
+      .cms-thumb-add { display: flex !important; flex-direction: column; align-items: center; justify-content: center; background: rgba(34,197,94,.14) !important; border: 2px dashed #22c55e !important; opacity: .95 !important; color: #22c55e; font: 700 18px Inter, sans-serif; gap: 0; }
+      .cms-thumb-add small { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+      .cms-thumb-add:hover { background: rgba(34,197,94,.28) !important; transform: scale(1.05); }
+      .cms-card-tools { position: absolute; top: 10px; left: 10px; z-index: 6; display: flex; align-items: center; gap: 5px; background: rgba(7,9,8,.88); backdrop-filter: blur(8px); border: 1px solid rgba(70,122,113,.7); border-radius: 99px; padding: 3px 6px; box-shadow: 0 6px 18px rgba(0,0,0,.6); }
+      .cms-ct-btn { border: none; border-radius: 99px; padding: 4px 8px; font: 700 11px Inter, sans-serif; cursor: pointer; transition: transform .15s, opacity .15s; color: #fff; }
+      .cms-ct-btn:hover { transform: scale(1.06); }
+      .cms-ct-btn.replace { background: #18A0FB; }
+      .cms-ct-btn.add { background: #22c55e; color: #051b0d; }
+      .cms-ct-btn.del { background: #ef4444; }
     `;
     document.head.appendChild(st);
 
@@ -1560,7 +1806,7 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
     bar.innerHTML = `
       <div class="cms-grp" title="Переключение режима клика: редактировать или обычные нажатия">
         <button type="button" id="cms-toggle-edit" class="cms-mode-active" title="Клик по элементам предлагает их редактировать">✏️ Режим правки</button>
-        <button type="button" id="cms-toggle-browse" title="Обычная работа сайта (все кнопки и ссылки нажимаются штатно)">👁️ Просмотр сайта</button>
+        <button type="button" id="cms-toggle-browse" title="Обычная работа сайта и просмотр галереи с управлением фото">👁️ Просмотр сайта</button>
       </div>
       <div class="cms-grp" title="Выравнивание выбранного текста">
         <span class="cms-lbl">Текст:</span>
@@ -1581,8 +1827,10 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
         <button type="button" data-act="font-dec" title="Уменьшить шрифт">A−</button>
         <button type="button" data-act="font-inc" title="Увеличить шрифт">A+</button>
       </div>
-      <div class="cms-grp">
-        <button type="button" class="cms-photo-btn" id="cms-btn-change-photo" title="Заменить фото">📷 Заменить фото</button>
+      <div class="cms-grp" title="Управление фотографиями и ракурсами">
+        <button type="button" class="cms-photo-btn" id="cms-btn-change-photo" title="Заменить выбранное или открытое фото">📷 Заменить</button>
+        <button type="button" class="cms-add-btn" id="cms-btn-add-photo" title="Добавить новое фото (ракурс) в проект">➕ Добавить фото</button>
+        <button type="button" class="cms-del-btn" id="cms-btn-del-photo" title="Удалить текущее фото (ракурс) из проекта">🗑️ Удалить фото</button>
         <input type="file" id="cms-file-input" accept="image/*" style="display:none">
       </div>
       <div class="cms-grp">
@@ -1592,7 +1840,11 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
     `;
     document.body.appendChild(bar);
 
+    renderGrid(getActiveFilter());
     applyVisualOutlines();
+    if (document.getElementById('gallery-modal').classList.contains('open')) {
+      updateGalleryUI();
+    }
 
     const mo = new MutationObserver(() => {
       if (isEditActive) applyVisualOutlines();
@@ -1619,7 +1871,7 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
     // Интеллектуальный перехват кликов с кнопкой подтверждения действия
     document.addEventListener('click', e => {
       if (!isEditActive) return;
-      if (e.target.closest('#cms-studio-bar') || e.target.closest('#cms-action-popover')) return;
+      if (e.target.closest('#cms-studio-bar') || e.target.closest('#cms-action-popover') || e.target.closest('#cms-gl-toolbar') || e.target.closest('.cms-thumb-del') || e.target.closest('.cms-thumb-add') || e.target.closest('.cms-card-tools')) return;
 
       // Если включен режим простого просмотра — не мешаем обычному взаимодействию!
       if (editSubMode === 'browse') return;
@@ -1627,11 +1879,17 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
       // 1. Клик по фото
       const img = e.target.closest('img');
       if (img && img.id !== 'v1' && img.id !== 'v2') {
+        if (img.closest('.gl-thumb')) return; // клик по миниатюре в галерее просто переключает ракурс
         e.preventDefault();
         e.stopPropagation();
         selectedImg = img;
+        const resolved = resolveProjectFromElement(img);
         showActionPopover(img, 'image', () => {
-          document.getElementById('cms-file-input').click();
+          fileActionMode = 'replace';
+          targetProjectForPhoto = resolved ? resolved.proj : null;
+          const fileInp = document.getElementById('cms-file-input');
+          fileInp.removeAttribute('multiple');
+          fileInp.click();
         }, () => {
           // Обычное действие с картинкой (например, если это карточка портфолио — открываем галерею)
           const card = img.closest('.work-card');
@@ -1639,7 +1897,15 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
             const pid = card.getAttribute('data-proj-id');
             if (pid) openGallery(pid);
           }
-        });
+        }, resolved ? {
+          proj: resolved.proj,
+          onAdd: () => {
+            window.__cmsAddAngles(resolved.proj);
+          },
+          onDel: () => {
+            deleteAngleFromProject(resolved.proj, resolved.angleIdx);
+          }
+        } : null);
         return;
       }
 
@@ -1666,6 +1932,11 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
             selectedEl.classList.add('cms-selected-el');
           }, () => {
             // Пользователь выбрал: "Нажать / Открыть"
+            const parentCard = ed.closest('.work-card[data-proj-id]');
+            if (parentCard) {
+              openGallery(parentCard.getAttribute('data-proj-id'));
+              return;
+            }
             if (ed.tagName === 'A' && ed.href) {
               if (ed.href.startsWith('javascript:')) {
                 eval(ed.href.replace('javascript:', ''));
@@ -1706,26 +1977,105 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
 
     const fileInp = document.getElementById('cms-file-input');
     fileInp.onchange = e => {
-      const file = e.target.files && e.target.files[0];
-      if (!file) return;
-      const targetImg = selectedImg || document.querySelector('#about-master img');
+      const files = e.target.files ? Array.from(e.target.files) : [];
+      if (!files.length) return;
+
+      if (fileActionMode === 'add') {
+        const proj = targetProjectForPhoto || curProj;
+        if (!proj) {
+          alert('Сначала откройте проект в галерее или кликните по карточке работы!');
+          fileInp.value = '';
+          return;
+        }
+        let processed = 0;
+        files.forEach(file => {
+          readAndCompressImage(file, 1400, 0.86, dataUrl => {
+            proj.angles.push(dataUrl);
+            processed++;
+            if (processed === files.length) {
+              syncProjectCount(proj);
+              if (curProj && curProj.id === proj.id) {
+                curAngleIdx = proj.angles.length - 1;
+                updateGalleryUI();
+              }
+            }
+          });
+        });
+        fileInp.value = '';
+        return;
+      }
+
+      // Режим замены ('replace')
+      const file = files[0];
+      const glOpen = document.getElementById('gallery-modal').classList.contains('open');
+      const targetImg = (glOpen && curProj) ? document.getElementById('gl-main-img') : (selectedImg || document.querySelector('#about-master img'));
       if (!targetImg) {
         alert('Сначала нажмите на любое фото на сайте, которое хотите заменить!');
+        fileInp.value = '';
         return;
       }
       readAndCompressImage(file, 1400, 0.86, dataUrl => {
-        targetImg.src = dataUrl;
-        syncEditsToDataArrays();
         if (targetImg.id === 'gl-main-img' && curProj) {
+          const oldUrl = curProj.angles[curAngleIdx];
           curProj.angles[curAngleIdx] = dataUrl;
+          if (curProj.hero === oldUrl || curAngleIdx === 0) {
+            curProj.hero = dataUrl;
+          }
+          syncProjectCount(curProj);
           updateGalleryUI();
+        } else {
+          const card = targetImg.closest('.work-card[data-proj-id]');
+          if (card) {
+            const pid = card.getAttribute('data-proj-id');
+            const proj = PROJECTS.find(p => p.id === pid);
+            if (proj) {
+              const oldHero = proj.hero;
+              const hIdx = proj.angles.indexOf(oldHero);
+              proj.hero = dataUrl;
+              if (hIdx !== -1) proj.angles[hIdx] = dataUrl;
+              else if (proj.angles.length) proj.angles[0] = dataUrl;
+              else proj.angles = [dataUrl];
+              syncProjectCount(proj);
+            }
+          }
+          targetImg.src = dataUrl;
+          syncEditsToDataArrays();
         }
       });
       fileInp.value = '';
     };
 
     document.getElementById('cms-btn-change-photo').onclick = () => {
-      alert('Нажмите на любое фото на сайте (портрет Юрия, карточку кухни или фото в галерее), и появится выбор: «Заменить фото»!');
+      const glOpen = document.getElementById('gallery-modal').classList.contains('open');
+      if (glOpen && curProj) {
+        window.__cmsReplaceCurrentAngle();
+        return;
+      }
+      if (selectedImg) {
+        fileActionMode = 'replace';
+        fileInp.removeAttribute('multiple');
+        fileInp.click();
+        return;
+      }
+      alert('Откройте любой проект в «Работах» (или нажмите на любое фото на странице), чтобы заменить фото!');
+    };
+
+    document.getElementById('cms-btn-add-photo').onclick = () => {
+      const resolved = resolveProjectFromElement(selectedImg || selectedEl);
+      if (resolved && resolved.proj) {
+        window.__cmsAddAngles(resolved.proj);
+        return;
+      }
+      alert('Откройте нужный проект в разделе «Работы» (в режиме просмотра) или нажмите на карточку проекта, чтобы добавить в него новые фото (ракурсы)!');
+    };
+
+    document.getElementById('cms-btn-del-photo').onclick = () => {
+      const resolved = resolveProjectFromElement(selectedImg || selectedEl);
+      if (resolved && resolved.proj) {
+        deleteAngleFromProject(resolved.proj, resolved.angleIdx);
+        return;
+      }
+      alert('Откройте проект в разделе «Работы» (или нажмите на фото в карточке), чтобы удалить ракурс!');
     };
 
     bar.addEventListener('click', e => {
@@ -1771,10 +2121,15 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
     document.getElementById('cms-btn-save').onclick = () => {
       closeActionPopover();
       syncEditsToDataArrays();
+      PROJECTS.forEach(p => { p.count = Array.isArray(p.angles) ? p.angles.length : (p.count || 1); });
       const clone = document.documentElement.cloneNode(true);
       const cBar = clone.querySelector('#cms-studio-bar'); if (cBar) cBar.remove();
       const cStyle = clone.querySelector('#cms-studio-style'); if (cStyle) cStyle.remove();
       const cPop = clone.querySelector('#cms-action-popover'); if (cPop) cPop.remove();
+      const cGlTb = clone.querySelector('#cms-gl-toolbar'); if (cGlTb) cGlTb.remove();
+      clone.querySelectorAll('.cms-thumb-del, .cms-thumb-add, .cms-card-tools').forEach(el => el.remove());
+      const cGlModal = clone.querySelector('#gallery-modal'); if (cGlModal) cGlModal.classList.remove('open');
+      if (clone.body) clone.body.style.overflow = '';
       const ld = clone.querySelector('#ld'); if (ld) ld.remove();
       clone.querySelectorAll('#v1, #v2').forEach(v => v.removeAttribute('src'));
       clone.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
@@ -1795,9 +2150,13 @@ if (workGrid) new MutationObserver(observeWorkCards).observe(workGrid, { childLi
 
     document.getElementById('cms-btn-exit').onclick = () => {
       isEditActive = false;
+      window.__statusCmsActive = false;
       sessionStorage.removeItem('status_cms_edit');
       closeActionPopover();
       mo.disconnect();
+      const cGlTb = document.getElementById('cms-gl-toolbar'); if (cGlTb) cGlTb.remove();
+      renderGrid(getActiveFilter());
+      if (document.getElementById('gallery-modal').classList.contains('open')) updateGalleryUI();
       document.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
       document.querySelectorAll('.cms-has-outline, .cms-is-editing, .cms-selected-el, .cms-img-outline').forEach(el => {
         el.classList.remove('cms-has-outline', 'cms-is-editing', 'cms-selected-el', 'cms-img-outline');
