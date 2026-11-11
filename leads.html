@@ -16,6 +16,8 @@
     --mut: #9AA7A1;
     --ac: #467A71;
     --ac2: #5E9A8F;
+    --danger: #ef4444;
+    --danger-bg: rgba(239, 68, 68, 0.14);
     --border: rgba(255,255,255,0.1);
   }
   * { box-sizing: border-box; margin: 0; }
@@ -78,6 +80,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
+    align-items: center;
   }
   .btn {
     display: inline-flex;
@@ -93,17 +96,31 @@
     text-decoration: none;
     transition: 0.2s;
   }
-  .btn:hover {
+  .btn:hover:not(:disabled) {
     border-color: var(--ac2);
     background: #1a2622;
+  }
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
   .btn.primary {
     background: var(--ac);
     border-color: var(--ac);
     color: #fff;
   }
-  .btn.primary:hover {
+  .btn.primary:hover:not(:disabled) {
     background: var(--ac2);
+  }
+  .btn.danger {
+    background: var(--danger-bg);
+    border-color: rgba(239, 68, 68, 0.45);
+    color: #fca5a5;
+  }
+  .btn.danger:hover:not(:disabled) {
+    background: var(--danger);
+    border-color: var(--danger);
+    color: #fff;
   }
   .stats-row {
     display: grid;
@@ -137,13 +154,13 @@
   table {
     width: 100%;
     border-collapse: collapse;
-    min-width: 1080px;
+    min-width: 1140px;
   }
   th, td {
-    padding: 12px 14px;
+    padding: 12px 13px;
     text-align: left;
     border-bottom: 1px solid rgba(255,255,255,0.06);
-    vertical-align: top;
+    vertical-align: middle;
   }
   th {
     background: #131b18;
@@ -154,9 +171,27 @@
     letter-spacing: 0.06em;
     position: sticky;
     top: 0;
+    z-index: 2;
+  }
+  tbody tr {
+    transition: background 0.15s;
   }
   tbody tr:hover {
     background: rgba(70, 122, 113, 0.08);
+  }
+  tbody tr.row-selected {
+    background: rgba(70, 122, 113, 0.22);
+  }
+  .chk-cell {
+    width: 42px;
+    text-align: center;
+  }
+  input.row-chk {
+    width: 17px;
+    height: 17px;
+    accent-color: var(--ac2);
+    cursor: pointer;
+    vertical-align: middle;
   }
   .phone-link {
     color: #5eead4;
@@ -176,6 +211,26 @@
     background: rgba(70, 122, 113, 0.2);
     color: #99f6e4;
   }
+  .row-del-btn {
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    background: rgba(239, 68, 68, 0.1);
+    color: #fca5a5;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: 0.15s;
+  }
+  .row-del-btn:hover {
+    background: var(--danger);
+    border-color: var(--danger);
+    color: #fff;
+    transform: scale(1.06);
+  }
   .empty-state {
     padding: 48px 20px;
     text-align: center;
@@ -194,6 +249,7 @@
     <p>Все заявки с сайта «Кухни и шкафы на заказ — Статус (Евпатория и Крым)» сохраняются сюда автоматически в реальном времени.</p>
   </div>
   <div class="actions">
+    <button class="btn danger" id="btn-del-selected" onclick="deleteSelectedLeads()" disabled>🗑️ Удалить выбранные (<span id="sel-count">0</span>)</button>
     <button class="btn primary" onclick="exportToExcelCsv()">📥 Скачать в Excel (.csv)</button>
     <button class="btn" onclick="copyForGoogleSheets()">📋 Скопировать для Google Таблиц</button>
     <button class="btn" onclick="loadCloudLeads()">🔄 Обновить</button>
@@ -203,8 +259,12 @@
 
 <div class="stats-row">
   <div class="stat-card">
-    <small>Всего заявок в таблице</small>
+    <small>Всего активных заявок</small>
     <b id="st-total">0</b>
+  </div>
+  <div class="stat-card">
+    <small>Выбрано галочками</small>
+    <b id="st-selected" style="color:#5eead4;">0</b>
   </div>
   <div class="stat-card">
     <small>За сегодня</small>
@@ -220,6 +280,9 @@
   <table id="leads-table">
     <thead>
       <tr>
+        <th class="chk-cell" title="Выбрать все / Снять выделение">
+          <input type="checkbox" class="row-chk" id="chk-all" onchange="toggleSelectAll(this.checked)">
+        </th>
         <th>№</th>
         <th>Дата и время</th>
         <th>Имя клиента</th>
@@ -232,18 +295,29 @@
         <th>Фурнитура</th>
         <th>Бюджет</th>
         <th>Сроки</th>
+        <th style="text-align:center;">Удалить</th>
       </tr>
     </thead>
     <tbody id="leads-tbody">
-      <tr><td colspan="12" class="empty-state">Загрузка заявок из облака...</td></tr>
+      <tr><td colspan="14" class="empty-state">Загрузка заявок из облака...</td></tr>
     </tbody>
   </table>
 </div>
 
 <script>
 const CLOUD_TOPIC = 'status_krym_leads_db_8989';
+const DELETED_STORAGE_KEY = 'status_deleted_leads_v1';
+
 let allLeads = [];
 const seenIds = new Set();
+const selectedKeys = new Set();
+const deletedKeys = new Set(JSON.parse(localStorage.getItem(DELETED_STORAGE_KEY) || '[]'));
+
+function saveDeletedKeys() {
+  try {
+    localStorage.setItem(DELETED_STORAGE_KEY, JSON.stringify([...deletedKeys]));
+  } catch (_) {}
+}
 
 function escapeHtml(str) {
   return String(str || '').replace(/[&<>"']/g, c => ({
@@ -251,16 +325,45 @@ function escapeHtml(str) {
   }[c]));
 }
 
+function isLeadDeleted(lead) {
+  return deletedKeys.has(lead.key) || (lead.ntfyId && deletedKeys.has(lead.ntfyId)) || (lead.leadId && deletedKeys.has(lead.leadId));
+}
+
+function applyDeleteIds(ids) {
+  if (!Array.isArray(ids)) return;
+  ids.forEach(id => {
+    if (id) deletedKeys.add(String(id));
+  });
+  saveDeletedKeys();
+  allLeads = allLeads.filter(l => !isLeadDeleted(l));
+  for (const k of [...selectedKeys]) {
+    if (deletedKeys.has(k)) selectedKeys.delete(k);
+  }
+}
+
 function parseNtfyItem(item) {
   if (!item || item.event !== 'message' || !item.message) return null;
-  if (seenIds.has(item.id)) return null;
   try {
     const data = JSON.parse(item.message);
-    if (!data || (!data.phone && !data.name)) return null;
+    if (!data) return null;
+
+    // Если это облачная команда удаления заявок
+    if (data._action === 'delete' && Array.isArray(data.ids)) {
+      applyDeleteIds(data.ids);
+      return null;
+    }
+
+    if (!data.phone && !data.name) return null;
+    const key = data.id || item.id;
+    if (seenIds.has(key) || seenIds.has(item.id)) return null;
+    seenIds.add(key);
     seenIds.add(item.id);
-    return {
-      id: item.id,
-      ts: (item.time || Math.floor(Date.now() / 1000)) * 1000,
+
+    const leadObj = {
+      key: String(key),
+      ntfyId: String(item.id),
+      leadId: String(data.id || item.id),
+      ts: data.ts || ((item.time || Math.floor(Date.now() / 1000)) * 1000),
       dateStr: data.date || new Date((item.time || Math.floor(Date.now() / 1000)) * 1000).toLocaleString('ru-RU'),
       name: data.name || 'Клиент с сайта',
       phone: data.phone || '—',
@@ -273,12 +376,103 @@ function parseNtfyItem(item) {
       budget: data.budget || '—',
       timeline: data.timeline || '—'
     };
+
+    if (isLeadDeleted(leadObj)) return null;
+    return leadObj;
   } catch (_) {
     return null;
   }
 }
 
+function updateSelectionUI() {
+  // Очищаем selectedKeys от несуществующих заявок
+  const validKeys = new Set(allLeads.map(l => l.key));
+  for (const k of [...selectedKeys]) {
+    if (!validKeys.has(k)) selectedKeys.delete(k);
+  }
+
+  const count = selectedKeys.size;
+  document.getElementById('sel-count').textContent = count;
+  document.getElementById('st-selected').textContent = count;
+  document.getElementById('btn-del-selected').disabled = count === 0;
+
+  const chkAll = document.getElementById('chk-all');
+  if (chkAll) {
+    chkAll.checked = allLeads.length > 0 && count === allLeads.length;
+    chkAll.indeterminate = count > 0 && count < allLeads.length;
+  }
+}
+
+function toggleSelectRow(key, checked, trEl) {
+  if (checked) selectedKeys.add(key);
+  else selectedKeys.delete(key);
+  if (trEl) trEl.classList.toggle('row-selected', checked);
+  updateSelectionUI();
+}
+
+function toggleSelectAll(checked) {
+  selectedKeys.clear();
+  if (checked) {
+    allLeads.forEach(l => selectedKeys.add(l.key));
+  }
+  renderTable();
+}
+
+async function deleteLeadsByKeys(keysToRemove) {
+  if (!keysToRemove.length) return;
+  const targets = allLeads.filter(l => keysToRemove.includes(l.key));
+  const allIdsToTombstone = [];
+  targets.forEach(t => {
+    if (t.key) allIdsToTombstone.push(t.key);
+    if (t.ntfyId) allIdsToTombstone.push(t.ntfyId);
+    if (t.leadId) allIdsToTombstone.push(t.leadId);
+  });
+
+  applyDeleteIds(allIdsToTombstone);
+
+  // Удаляем также из локального резерва localStorage
+  try {
+    const localRaw = localStorage.getItem('status_leads_backup');
+    if (localRaw) {
+      const localArr = JSON.parse(localRaw);
+      if (Array.isArray(localArr)) {
+        const filtered = localArr.filter(item => {
+          const lid = String(item.id || (item.phone + '_' + item.date));
+          return !deletedKeys.has(lid);
+        });
+        localStorage.setItem('status_leads_backup', JSON.stringify(filtered));
+      }
+    }
+  } catch (_) {}
+
+  renderTable();
+
+  // Отправляем метку удаления в облако, чтобы удалённые заявки скрылись на всех устройствах
+  try {
+    await fetch(`https://ntfy.sh/${CLOUD_TOPIC}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ _action: 'delete', ids: allIdsToTombstone })
+    });
+  } catch (_) {}
+}
+
+function deleteSingleLead(key) {
+  const target = allLeads.find(l => l.key === key);
+  const label = target ? `заявку от «${target.name}» (${target.phone})` : 'эту заявку';
+  if (!confirm(`Удалить ${label} из таблицы?`)) return;
+  deleteLeadsByKeys([key]);
+}
+
+function deleteSelectedLeads() {
+  const keys = [...selectedKeys];
+  if (!keys.length) return;
+  if (!confirm(`Удалить выбранные заявки (${keys.length} шт.) из таблицы?`)) return;
+  deleteLeadsByKeys(keys);
+}
+
 function renderTable() {
+  allLeads = allLeads.filter(l => !isLeadDeleted(l));
   const tbody = document.getElementById('leads-tbody');
   const sorted = [...allLeads].sort((a, b) => b.ts - a.ts);
 
@@ -288,13 +482,21 @@ function renderTable() {
   document.getElementById('st-today').textContent = todayCount;
   document.getElementById('st-last').textContent = sorted.length ? sorted[0].dateStr : '—';
 
+  updateSelectionUI();
+
   if (!sorted.length) {
-    tbody.innerHTML = '<tr><td colspan="12" class="empty-state">Пока нет заявок. Заполните калькулятор на сайте, и заявка мгновенно появится здесь!</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="14" class="empty-state">Пока нет активных заявок. Заполните калькулятор на сайте, и заявка мгновенно появится здесь!</td></tr>';
     return;
   }
 
-  tbody.innerHTML = sorted.map((l, idx) => `
-    <tr>
+  tbody.innerHTML = sorted.map((l, idx) => {
+    const isSel = selectedKeys.has(l.key);
+    const safeKey = escapeHtml(l.key);
+    return `
+    <tr class="${isSel ? 'row-selected' : ''}" onclick="if(!event.target.closest('a,button,input')){const cb=this.querySelector('.row-chk');cb.checked=!cb.checked;toggleSelectRow('${safeKey}',cb.checked,this);}">
+      <td class="chk-cell">
+        <input type="checkbox" class="row-chk" ${isSel ? 'checked' : ''} onchange="toggleSelectRow('${safeKey}', this.checked, this.closest('tr'))">
+      </td>
       <td style="color:var(--mut); font-weight:600;">${sorted.length - idx}</td>
       <td style="white-space:nowrap; color:var(--mut);">${escapeHtml(l.dateStr)}</td>
       <td style="font-weight:600;">${escapeHtml(l.name)}</td>
@@ -307,23 +509,28 @@ function renderTable() {
       <td>${escapeHtml(l.hardware)}</td>
       <td style="font-weight:600;">${escapeHtml(l.budget)}</td>
       <td>${escapeHtml(l.timeline)}</td>
+      <td style="text-align:center;">
+        <button type="button" class="row-del-btn" title="Удалить эту заявку" onclick="deleteSingleLead('${safeKey}')">🗑️</button>
+      </td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
 }
 
 async function loadCloudLeads() {
   try {
-    // Подгружаем также локальный резерв браузера
     const localRaw = localStorage.getItem('status_leads_backup');
     if (localRaw) {
       const localArr = JSON.parse(localRaw);
       if (Array.isArray(localArr)) {
         localArr.forEach(item => {
-          const lid = item.id || (item.phone + '_' + item.date);
-          if (!seenIds.has(lid)) {
+          const lid = String(item.id || (item.phone + '_' + item.date));
+          if (!seenIds.has(lid) && !deletedKeys.has(lid)) {
             seenIds.add(lid);
             allLeads.push({
-              id: lid,
+              key: lid,
+              ntfyId: lid,
+              leadId: lid,
               ts: item.ts || Date.now(),
               dateStr: item.date || new Date().toLocaleString('ru-RU'),
               name: item.name || 'Клиент с сайта',
@@ -345,13 +552,17 @@ async function loadCloudLeads() {
     const res = await fetch(`https://ntfy.sh/${CLOUD_TOPIC}/json?poll=1&since=all`);
     const text = await res.text();
     const lines = text.trim().split('\n');
+    const pendingLeads = [];
     lines.forEach(line => {
       if (!line.trim()) return;
       try {
         const obj = JSON.parse(line);
         const parsed = parseNtfyItem(obj);
-        if (parsed) allLeads.push(parsed);
+        if (parsed) pendingLeads.push(parsed);
       } catch (_) {}
+    });
+    pendingLeads.forEach(p => {
+      if (!isLeadDeleted(p)) allLeads.push(p);
     });
     renderTable();
   } catch (e) {
@@ -366,24 +577,32 @@ function startRealtimeStream() {
       try {
         const obj = JSON.parse(e.data);
         const parsed = parseNtfyItem(obj);
-        if (parsed) {
+        if (parsed && !isLeadDeleted(parsed)) {
           allLeads.push(parsed);
-          renderTable();
         }
+        renderTable();
       } catch (_) {}
     };
   } catch (_) {}
 }
 
+function getTargetExportLeads() {
+  const sorted = [...allLeads].sort((a, b) => b.ts - a.ts);
+  if (selectedKeys.size > 0) {
+    return sorted.filter(l => selectedKeys.has(l.key));
+  }
+  return sorted;
+}
+
 function exportToExcelCsv() {
-  if (!allLeads.length) {
+  const targetList = getTargetExportLeads();
+  if (!targetList.length) {
     alert('Таблица пока пуста!');
     return;
   }
-  const sorted = [...allLeads].sort((a, b) => b.ts - a.ts);
   const headers = ['№', 'Дата и время', 'Имя клиента', 'Телефон', 'Способ связи', 'Планировка', 'Размеры', 'Фасады', 'Столешница', 'Фурнитура', 'Бюджет', 'Сроки'];
-  const rows = sorted.map((l, i) => [
-    sorted.length - i,
+  const rows = targetList.map((l, i) => [
+    targetList.length - i,
     l.dateStr,
     l.name,
     l.phone,
@@ -397,7 +616,6 @@ function exportToExcelCsv() {
     l.timeline
   ].map(v => `"${String(v || '').replace(/"/g, '""')}"`).join(';'));
 
-  // UTF-8 BOM + точка с запятой для идеального открытия в русском Excel
   const csvContent = '\uFEFF' + headers.join(';') + '\r\n' + rows.join('\r\n');
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const a = document.createElement('a');
@@ -407,22 +625,22 @@ function exportToExcelCsv() {
 }
 
 function copyForGoogleSheets() {
-  if (!allLeads.length) {
+  const targetList = getTargetExportLeads();
+  if (!targetList.length) {
     alert('Таблица пока пуста!');
     return;
   }
-  const sorted = [...allLeads].sort((a, b) => b.ts - a.ts);
   const headers = ['№', 'Дата и время', 'Имя клиента', 'Телефон', 'Способ связи', 'Планировка', 'Размеры', 'Фасады', 'Столешница', 'Фурнитура', 'Бюджет', 'Сроки'];
   const tsv = [
     headers.join('\t'),
-    ...sorted.map((l, i) => [
-      sorted.length - i, l.dateStr, l.name, l.phone, l.messenger,
+    ...targetList.map((l, i) => [
+      targetList.length - i, l.dateStr, l.name, l.phone, l.messenger,
       l.shape, l.size, l.facades, l.countertop, l.hardware, l.budget, l.timeline
     ].map(v => String(v || '').replace(/[\t\r\n]+/g, ' ')).join('\t'))
   ].join('\r\n');
 
   navigator.clipboard.writeText(tsv).then(() => {
-    alert('Таблица скопирована! Теперь просто откройте любую Google Таблицу или Excel и нажмите Ctrl + V.');
+    alert('Скопировано! Теперь откройте любую Google Таблицу или Excel и нажмите Ctrl + V.');
   });
 }
 
