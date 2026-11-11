@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Таблица заявок с сайта — Кухни и шкафы «Статус»</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Oswald:wght@600;700&display=swap&subset=cyrillic" rel="stylesheet">
+<style>
+  :root {
+    --bg: #070908;
+    --card: #0F1412;
+    --card2: #141c19;
+    --fg: #EEF2EF;
+    --mut: #9AA7A1;
+    --ac: #467A71;
+    --ac2: #5E9A8F;
+    --border: rgba(255,255,255,0.1);
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: Inter, system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    line-height: 1.45;
+    padding: 24px clamp(16px, 3vw, 40px);
+  }
+  .top-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 22px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .title-wrap h1 {
+    font-family: Oswald, sans-serif;
+    font-size: clamp(24px, 3vw, 34px);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .title-wrap p {
+    color: var(--mut);
+    font-size: 13px;
+    margin-top: 4px;
+  }
+  .live-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #4ade80;
+    background: rgba(34, 197, 94, 0.12);
+    border: 1px solid rgba(34, 197, 94, 0.35);
+    padding: 4px 11px;
+    border-radius: 99px;
+    vertical-align: middle;
+    margin-left: 10px;
+  }
+  .live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 8px #22c55e;
+    animation: pulse 1.8s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 10px 16px;
+    border-radius: 10px;
+    font: 600 13px Inter, sans-serif;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--card2);
+    color: var(--fg);
+    text-decoration: none;
+    transition: 0.2s;
+  }
+  .btn:hover {
+    border-color: var(--ac2);
+    background: #1a2622;
+  }
+  .btn.primary {
+    background: var(--ac);
+    border-color: var(--ac);
+    color: #fff;
+  }
+  .btn.primary:hover {
+    background: var(--ac2);
+  }
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .stat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 18px;
+  }
+  .stat-card small {
+    color: var(--mut);
+    font-size: 12px;
+    display: block;
+    margin-bottom: 4px;
+  }
+  .stat-card b {
+    font: 700 26px Oswald, sans-serif;
+    color: var(--fg);
+  }
+  .table-wrap {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow-x: auto;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.45);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 1080px;
+  }
+  th, td {
+    padding: 12px 14px;
+    text-align: left;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    vertical-align: top;
+  }
+  th {
+    background: #131b18;
+    color: var(--mut);
+    font-size: 11.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    position: sticky;
+    top: 0;
+  }
+  tbody tr:hover {
+    background: rgba(70, 122, 113, 0.08);
+  }
+  .phone-link {
+    color: #5eead4;
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .phone-link:hover {
+    text-decoration: underline;
+  }
+  .tag {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    background: rgba(70, 122, 113, 0.2);
+    color: #99f6e4;
+  }
+  .empty-state {
+    padding: 48px 20px;
+    text-align: center;
+    color: var(--mut);
+  }
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <div class="title-wrap">
+    <h1>
+      📊 Таблица заявок с калькулятора
+      <span class="live-badge"><span class="live-dot"></span> Онлайн-синхронизация</span>
+    </h1>
+    <p>Все заявки с сайта «Кухни и шкафы на заказ — Статус (Евпатория и Крым)» сохраняются сюда автоматически в реальном времени.</p>
+  </div>
+  <div class="actions">
+    <button class="btn primary" onclick="exportToExcelCsv()">📥 Скачать в Excel (.csv)</button>
+    <button class="btn" onclick="copyForGoogleSheets()">📋 Скопировать для Google Таблиц</button>
+    <button class="btn" onclick="loadCloudLeads()">🔄 Обновить</button>
+    <a class="btn" href="index.html">← На сайт</a>
+  </div>
+</div>
+
+<div class="stats-row">
+  <div class="stat-card">
+    <small>Всего заявок в таблице</small>
+    <b id="st-total">0</b>
+  </div>
+  <div class="stat-card">
+    <small>За сегодня</small>
+    <b id="st-today">0</b>
+  </div>
+  <div class="stat-card">
+    <small>Последняя заявка</small>
+    <b id="st-last" style="font-size:18px;">—</b>
+  </div>
+</div>
+
+<div class="table-wrap">
+  <table id="leads-table">
+    <thead>
+      <tr>
+        <th>№</th>
+        <th>Дата и время</th>
+        <th>Имя клиента</th>
+        <th>Телефон</th>
+        <th>Связь</th>
+        <th>Планировка</th>
+        <th>Размеры</th>
+        <th>Фасады</th>
+        <th>Столешница</th>
+        <th>Фурнитура</th>
+        <th>Бюджет</th>
+        <th>Сроки</th>
+      </tr>
+    </thead>
+    <tbody id="leads-tbody">
+      <tr><td colspan="12" class="empty-state">Загрузка заявок из облака...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+const CLOUD_TOPIC = 'status_krym_leads_db_8989';
+let allLeads = [];
+const seenIds = new Set();
+
+function escapeHtml(str) {
+  return String(str || '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+function parseNtfyItem(item) {
+  if (!item || item.event !== 'message' || !item.message) return null;
+  if (seenIds.has(item.id)) return null;
+  try {
+    const data = JSON.parse(item.message);
+    if (!data || (!data.phone && !data.name)) return null;
+    seenIds.add(item.id);
+    return {
+      id: item.id,
+      ts: (item.time || Math.floor(Date.now() / 1000)) * 1000,
+      dateStr: data.date || new Date((item.time || Math.floor(Date.now() / 1000)) * 1000).toLocaleString('ru-RU'),
+      name: data.name || 'Клиент с сайта',
+      phone: data.phone || '—',
+      messenger: data.messenger || 'MAX',
+      shape: data.shape || '—',
+      size: data.size || '—',
+      facades: data.facades || '—',
+      countertop: data.countertop || '—',
+      hardware: data.hardware || '—',
+      budget: data.budget || '—',
+      timeline: data.timeline || '—'
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function renderTable() {
+  const tbody = document.getElementById('leads-tbody');
+  const sorted = [...allLeads].sort((a, b) => b.ts - a.ts);
+
+  document.getElementById('st-total').textContent = sorted.length;
+  const todayStr = new Date().toLocaleDateString('ru-RU');
+  const todayCount = sorted.filter(l => new Date(l.ts).toLocaleDateString('ru-RU') === todayStr).length;
+  document.getElementById('st-today').textContent = todayCount;
+  document.getElementById('st-last').textContent = sorted.length ? sorted[0].dateStr : '—';
+
+  if (!sorted.length) {
+    tbody.innerHTML = '<tr><td colspan="12" class="empty-state">Пока нет заявок. Заполните калькулятор на сайте, и заявка мгновенно появится здесь!</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = sorted.map((l, idx) => `
+    <tr>
+      <td style="color:var(--mut); font-weight:600;">${sorted.length - idx}</td>
+      <td style="white-space:nowrap; color:var(--mut);">${escapeHtml(l.dateStr)}</td>
+      <td style="font-weight:600;">${escapeHtml(l.name)}</td>
+      <td><a class="phone-link" href="tel:${escapeHtml(l.phone.replace(/[^\d+]/g, ''))}">${escapeHtml(l.phone)}</a></td>
+      <td><span class="tag">${escapeHtml(l.messenger)}</span></td>
+      <td>${escapeHtml(l.shape)}</td>
+      <td>${escapeHtml(l.size)}</td>
+      <td>${escapeHtml(l.facades)}</td>
+      <td>${escapeHtml(l.countertop)}</td>
+      <td>${escapeHtml(l.hardware)}</td>
+      <td style="font-weight:600;">${escapeHtml(l.budget)}</td>
+      <td>${escapeHtml(l.timeline)}</td>
+    </tr>
+  `).join('');
+}
+
+async function loadCloudLeads() {
+  try {
+    // Подгружаем также локальный резерв браузера
+    const localRaw = localStorage.getItem('status_leads_backup');
+    if (localRaw) {
+      const localArr = JSON.parse(localRaw);
+      if (Array.isArray(localArr)) {
+        localArr.forEach(item => {
+          const lid = item.id || (item.phone + '_' + item.date);
+          if (!seenIds.has(lid)) {
+            seenIds.add(lid);
+            allLeads.push({
+              id: lid,
+              ts: item.ts || Date.now(),
+              dateStr: item.date || new Date().toLocaleString('ru-RU'),
+              name: item.name || 'Клиент с сайта',
+              phone: item.phone || '—',
+              messenger: item.messenger || 'MAX',
+              shape: item.shape || '—',
+              size: item.size || '—',
+              facades: item.facades || '—',
+              countertop: item.countertop || '—',
+              hardware: item.hardware || '—',
+              budget: item.budget || '—',
+              timeline: item.timeline || '—'
+            });
+          }
+        });
+      }
+    }
+
+    const res = await fetch(`https://ntfy.sh/${CLOUD_TOPIC}/json?poll=1&since=all`);
+    const text = await res.text();
+    const lines = text.trim().split('\n');
+    lines.forEach(line => {
+      if (!line.trim()) return;
+      try {
+        const obj = JSON.parse(line);
+        const parsed = parseNtfyItem(obj);
+        if (parsed) allLeads.push(parsed);
+      } catch (_) {}
+    });
+    renderTable();
+  } catch (e) {
+    renderTable();
+  }
+}
+
+function startRealtimeStream() {
+  try {
+    const es = new EventSource(`https://ntfy.sh/${CLOUD_TOPIC}/sse`);
+    es.onmessage = e => {
+      try {
+        const obj = JSON.parse(e.data);
+        const parsed = parseNtfyItem(obj);
+        if (parsed) {
+          allLeads.push(parsed);
+          renderTable();
+        }
+      } catch (_) {}
+    };
+  } catch (_) {}
+}
+
+function exportToExcelCsv() {
+  if (!allLeads.length) {
+    alert('Таблица пока пуста!');
+    return;
+  }
+  const sorted = [...allLeads].sort((a, b) => b.ts - a.ts);
+  const headers = ['№', 'Дата и время', 'Имя клиента', 'Телефон', 'Способ связи', 'Планировка', 'Размеры', 'Фасады', 'Столешница', 'Фурнитура', 'Бюджет', 'Сроки'];
+  const rows = sorted.map((l, i) => [
+    sorted.length - i,
+    l.dateStr,
+    l.name,
+    l.phone,
+    l.messenger,
+    l.shape,
+    l.size,
+    l.facades,
+    l.countertop,
+    l.hardware,
+    l.budget,
+    l.timeline
+  ].map(v => `"${String(v || '').replace(/"/g, '""')}"`).join(';'));
+
+  // UTF-8 BOM + точка с запятой для идеального открытия в русском Excel
+  const csvContent = '\uFEFF' + headers.join(';') + '\r\n' + rows.join('\r\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `Заявки_Кухни_Статус_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+
+function copyForGoogleSheets() {
+  if (!allLeads.length) {
+    alert('Таблица пока пуста!');
+    return;
+  }
+  const sorted = [...allLeads].sort((a, b) => b.ts - a.ts);
+  const headers = ['№', 'Дата и время', 'Имя клиента', 'Телефон', 'Способ связи', 'Планировка', 'Размеры', 'Фасады', 'Столешница', 'Фурнитура', 'Бюджет', 'Сроки'];
+  const tsv = [
+    headers.join('\t'),
+    ...sorted.map((l, i) => [
+      sorted.length - i, l.dateStr, l.name, l.phone, l.messenger,
+      l.shape, l.size, l.facades, l.countertop, l.hardware, l.budget, l.timeline
+    ].map(v => String(v || '').replace(/[\t\r\n]+/g, ' ')).join('\t'))
+  ].join('\r\n');
+
+  navigator.clipboard.writeText(tsv).then(() => {
+    alert('Таблица скопирована! Теперь просто откройте любую Google Таблицу или Excel и нажмите Ctrl + V.');
+  });
+}
+
+loadCloudLeads();
+startRealtimeStream();
+</script>
+</body>
+</html>
