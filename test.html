@@ -1045,11 +1045,15 @@ const MOB_CTX = MOB_CVS ? MOB_CVS.getContext('2d', { alpha: false }) : null;
 const MOB_ATLAS_SHA = 'b8d23b3543610171561929f6d0e0c5807a5b5ae8';
 const MOB_ATLAS_CDN = 'https://cdn.jsdelivr.net/gh/romabannov08-bot/status-krym@' + MOB_ATLAS_SHA + '/video/m/';
 const MOB_ATLAS_CACHE = 'status-krym-atlas-v7';
+const MOB_HQ_SHA = 'c22c99e5dafb8f48e324e2ebc25874e9935ab2b6';
+const MOB_HQ_CDN = 'https://cdn.jsdelivr.net/gh/romabannov08-bot/status-krym@' + MOB_HQ_SHA + '/video/';
+const MOB_HQ_CACHE = 'status-krym-mobhq-v8';
 const MOB_TILE_W = 768, MOB_TILE_H = 432, MOB_COLS = 5, MOB_PER_SHEET = 20;
 const MOB_S1_COUNT = 14, MOB_S1_MAX_FRAME = 263, MOB_S1_FPS = 60;
 const MOB_S2_COUNT = 24, MOB_S2_MAX_FRAME = 478, MOB_S2_FPS = 48;
 const MOB_TOTAL_SHEETS = MOB_S1_COUNT + MOB_S2_COUNT;
 const MOB_MAX_DECODED = 4;
+const HQ_MAX_FRAMES = 6;
 
 const mobBlobs = new Map();
 const mobDecoded = new Map();
@@ -1065,11 +1069,26 @@ let mobCvsW = 0, mobCvsH = 0;
 let mobLastDrawnSheet = -1, mobLastDrawnLocal = -1, mobRedrawNow = false;
 let deskVideosStarted = false;
 
+// State for 720p CRF 15/16 WebCodecs progressive engine (tier 1 on phones)
+const HQ_SUPPORTED = location.protocol !== 'file:' && typeof VideoDecoder === 'function' && typeof EncodedVideoChunk === 'function';
+let hqActive = false, hqFailed = false;
+const hqTracks = { 1: null, 2: null };
+const hqFrames = new Map();
+const hqDecoding = new Set();
+let hqDecoder = null, hqConfiguredSig = '';
+let hqWantedKey = 0, hqLastDrawnKey = -1, hqLastDrawnStage = 0, hqWatchdog = null;
+
 window.__mobStats = {
   draws: 0, misses: 0, lastFrame: -1, lastSheet: -1, lastStage: 0,
   lastDrawMs: 0, maxDrawMs: 0,
-  get decodedCount() { return mobDecoded.size; },
-  get fetchedCount() { return mobBlobs.size; },
+  get mode() { return (hqActive && !hqFailed) ? 'webcodecs' : 'webp-atlas'; },
+  get decodedCount() { return (hqActive && !hqFailed) ? hqFrames.size : mobDecoded.size; },
+  get fetchedCount() {
+    if (hqActive && !hqFailed) return (hqTracks[1]?.complete ? 1 : 0) + (hqTracks[2]?.complete ? 1 : 0);
+    return mobBlobs.size;
+  },
+  get hqS1Bytes() { return hqTracks[1] ? hqTracks[1].bytesReady : 0; },
+  get hqS2Bytes() { return hqTracks[2] ? hqTracks[2].bytesReady : 0; },
   get isMob() { return IS_MOBILE; },
   get canvasReady() { return mobFirstPainted; }
 };
@@ -1082,7 +1101,7 @@ function mobSheetName(idx) {
 function resizeMobCanvas() {
   if (!MOB_CVS || !MOB_CTX || !IS_MOBILE) return;
   const rect = (stickEl || MOB_CVS).getBoundingClientRect();
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const dpr = Math.min(2.5, window.devicePixelRatio || 1);
   const w = Math.max(1, Math.round(rect.width * dpr));
   const h = Math.max(1, Math.round(rect.height * dpr));
   if (w !== mobCvsW || h !== mobCvsH) {
@@ -1092,6 +1111,31 @@ function resizeMobCanvas() {
     mobCvsH = h;
     mobRedrawNow = true;
   }
+  MOB_CTX.imageSmoothingEnabled = true;
+  MOB_CTX.imageSmoothingQuality = 'high';
+}
+
+function drawMobCoverSource(src, sx, sy, sw, sh) {
+  const cw = MOB_CVS.width, ch = MOB_CVS.height;
+  const canvasAspect = cw / ch, srcAspect = sw / sh;
+  let cropX = sx, cropY = sy, cropW = sw, cropH = sh;
+  if (canvasAspect > srcAspect) {
+    cropH = sw / canvasAspect;
+    cropY = sy + (sh - cropH) * 0.5;
+  } else {
+    cropW = sh * canvasAspect;
+    cropX = sx + (sw - cropW) * 0.5;
+  }
+  MOB_CTX.drawImage(src, cropX, cropY, cropW, cropH, 0, 0, cw, ch);
+}
+
+function markMobFirstPaint() {
+  if (mobFirstPainted) return;
+  mobFirstPainted = true;
+  MOB_CVS.style.opacity = '1';
+  if (V1) V1.style.display = 'none';
+  if (V2) V2.style.display = 'none';
+  if (mobFirstCb) { const cb = mobFirstCb; mobFirstCb = null; cb(); }
 }
 
 function evictMobBitmap(keepIdx) {
@@ -1249,9 +1293,7 @@ function initMobAtlas(onFirstReady) {
   mobPumpQueue();
 }
 
-function mobRenderAtTime(stage, time) {
-  if (!MOB_CTX || !MOB_CVS) return;
-  resizeMobCanvas();
+function drawMobAtlasFrame(stage, time) {
   let frameIdx, sheetIdx;
   if (stage === 1) {
     frameIdx = Math.max(0, Math.min(MOB_S1_MAX_FRAME, Math.round(time * MOB_S1_FPS)));
@@ -1280,20 +1322,8 @@ function mobRenderAtTime(stage, time) {
   }
 
   const t0 = performance.now();
-  const cw = MOB_CVS.width, ch = MOB_CVS.height;
-  const sw = MOB_TILE_W, sh = MOB_TILE_H;
   const col = localIdx % MOB_COLS, row = Math.floor(localIdx / MOB_COLS);
-  const sx = col * sw, sy = row * sh;
-  const canvasAspect = cw / ch, srcAspect = sw / sh;
-  let cropX = sx, cropY = sy, cropW = sw, cropH = sh;
-  if (canvasAspect > srcAspect) {
-    cropH = sw / canvasAspect;
-    cropY = sy + (sh - cropH) * 0.5;
-  } else {
-    cropW = sh * canvasAspect;
-    cropX = sx + (sw - cropW) * 0.5;
-  }
-  MOB_CTX.drawImage(bmp, cropX, cropY, cropW, cropH, 0, 0, cw, ch);
+  drawMobCoverSource(bmp, col * MOB_TILE_W, row * MOB_TILE_H, MOB_TILE_W, MOB_TILE_H);
   const drawMs = performance.now() - t0;
 
   mobLastDrawnSheet = sheetIdx;
@@ -1306,14 +1336,382 @@ function mobRenderAtTime(stage, time) {
   st.lastStage = stage;
   st.lastDrawMs = +drawMs.toFixed(3);
   if (drawMs > st.maxDrawMs) st.maxDrawMs = st.lastDrawMs;
+  markMobFirstPaint();
+}
 
-  if (!mobFirstPainted) {
-    mobFirstPainted = true;
-    MOB_CVS.style.opacity = '1';
-    if (V1) V1.style.display = 'none';
-    if (V2) V2.style.display = 'none';
-    if (mobFirstCb) { const cb = mobFirstCb; mobFirstCb = null; cb(); }
+// ===== MOBILE 720p CRF 15/16 WEBCODECS PROGRESSIVE ENGINE =====
+function parseMp4MoovPrefix(u8, bytesLoaded) {
+  if (!u8 || bytesLoaded < 64) return null;
+  const dv = new DataView(u8.buffer, u8.byteOffset, bytesLoaded);
+  let avcC = null, stsz = null, stco = null, stsc = null, moovComplete = false;
+
+  function rStr(o, n) {
+    let s = '';
+    for (let i = 0; i < n; i++) s += String.fromCharCode(u8[o + i]);
+    return s;
   }
+
+  function walk(start, end) {
+    let p = start;
+    while (p + 8 <= end) {
+      let sz = dv.getUint32(p);
+      const tp = rStr(p + 4, 4);
+      let hdr = 8;
+      if (sz === 1 && p + 16 <= end) { sz = Number(dv.getBigUint64(p + 8)); hdr = 16; }
+      else if (sz === 0) { sz = end - p; }
+      if (sz < hdr || p + sz > end) break;
+      const b0 = p + hdr, b1 = p + sz;
+
+      if (tp === 'moov') moovComplete = true;
+      if (tp === 'moov' || tp === 'trak' || tp === 'mdia' || tp === 'minf' || tp === 'stbl') {
+        walk(b0, b1);
+      } else if (tp === 'stsd') {
+        const cnt = dv.getUint32(b0 + 4);
+        let sp = b0 + 8;
+        for (let i = 0; i < cnt && sp + 8 <= b1; i++) {
+          const ss = dv.getUint32(sp), st = rStr(sp + 4, 4);
+          if ((st === 'avc1' || st === 'avc3') && sp + 86 < sp + ss) walk(sp + 86, sp + ss);
+          sp += ss;
+        }
+      } else if (tp === 'avcC') {
+        avcC = u8.slice(b0, b1);
+      } else if (tp === 'stsz') {
+        const cSz = dv.getUint32(b0 + 4), cnt = dv.getUint32(b0 + 8);
+        stsz = new Uint32Array(cnt);
+        if (cSz > 0) stsz.fill(cSz);
+        else for (let i = 0; i < cnt; i++) stsz[i] = dv.getUint32(b0 + 12 + i * 4);
+      } else if (tp === 'stsc') {
+        const cnt = dv.getUint32(b0 + 4);
+        stsc = [];
+        for (let i = 0; i < cnt; i++) {
+          stsc.push({ firstChunk: dv.getUint32(b0 + 8 + i * 12), perChunk: dv.getUint32(b0 + 12 + i * 12) });
+        }
+      } else if (tp === 'stco') {
+        const cnt = dv.getUint32(b0 + 4);
+        stco = new Float64Array(cnt);
+        for (let i = 0; i < cnt; i++) stco[i] = dv.getUint32(b0 + 8 + i * 4);
+      } else if (tp === 'co64') {
+        const cnt = dv.getUint32(b0 + 4);
+        stco = new Float64Array(cnt);
+        for (let i = 0; i < cnt; i++) stco[i] = Number(dv.getBigUint64(b0 + 8 + i * 8));
+      }
+      p += sz;
+    }
+  }
+
+  walk(0, bytesLoaded);
+  if (!moovComplete || !avcC || !stsz || !stco || !stsc) return null;
+
+  const n = stsz.length;
+  const offsets = new Float64Array(n);
+  let si = 0;
+  for (let ci = 0; ci < stco.length && si < n; ci++) {
+    const chunkNum = ci + 1;
+    let per = 1;
+    for (let r = stsc.length - 1; r >= 0; r--) {
+      if (chunkNum >= stsc[r].firstChunk) { per = stsc[r].perChunk; break; }
+    }
+    let off = stco[ci];
+    for (let k = 0; k < per && si < n; k++) {
+      offsets[si] = off;
+      off += stsz[si];
+      si++;
+    }
+  }
+  const hex = b => b.toString(16).padStart(2, '0');
+  const codec = 'avc1.' + hex(avcC[1]) + hex(avcC[2]) + hex(avcC[3]);
+  const sig = codec + ':' + n + ':' + avcC.byteLength;
+  const cfg = { codec, description: avcC, codedWidth: 1280, codedHeight: 720, optimizeForLatency: true };
+  return { avcC, codec, sig, cfg, sizes: stsz, offsets, count: n };
+}
+
+function fallbackToMobAtlas() {
+  if (hqFailed) return;
+  hqFailed = true;
+  if (hqWatchdog) { clearTimeout(hqWatchdog); hqWatchdog = null; }
+  for (const vf of hqFrames.values()) { try { vf.close(); } catch (_) {} }
+  hqFrames.clear();
+  if (hqDecoder && hqDecoder.state !== 'closed') { try { hqDecoder.close(); } catch (_) {} }
+  hqDecoder = null;
+  if (!mobBlobs.size && !mobFetching.size) initMobAtlas(mobFirstCb);
+  else { mobRedrawNow = true; mobPumpQueue(); }
+}
+
+function storeHqFrame(key, vf) {
+  if (!vf) return;
+  if (hqFrames.has(key)) {
+    try { hqFrames.get(key).close(); } catch (_) {}
+    hqFrames.delete(key);
+  }
+  const sameSt = (key >= 1000 ? 2 : 1) === (hqWantedKey >= 1000 ? 2 : 1);
+  if (sameSt && Math.abs(key - hqWantedKey) > 15 && hqFrames.size >= HQ_MAX_FRAMES && key !== hqLastDrawnKey) {
+    try { vf.close(); } catch (_) {}
+    return;
+  }
+  while (hqFrames.size >= HQ_MAX_FRAMES) {
+    let farKey = -1, farDist = -1;
+    const wStage = hqWantedKey >= 1000 ? 2 : 1;
+    for (const k of hqFrames.keys()) {
+      if (k === key) continue;
+      const kStage = k >= 1000 ? 2 : 1;
+      const d = (kStage === wStage ? Math.abs(k - hqWantedKey) : 2000 + Math.abs(k - hqWantedKey)) + (k === hqLastDrawnKey ? -0.5 : 0);
+      if (d > farDist) { farDist = d; farKey = k; }
+    }
+    if (farKey < 0) break;
+    const old = hqFrames.get(farKey);
+    hqFrames.delete(farKey);
+    if (old) { try { old.close(); } catch (_) {} }
+  }
+  hqFrames.set(key, vf);
+}
+
+const hqSupCache = new Map();
+async function ensureHqDecoder(meta) {
+  if (!meta || hqFailed) return false;
+  let ok = hqSupCache.get(meta.sig);
+  if (ok === undefined) {
+    try {
+      const sup = await VideoDecoder.isConfigSupported(meta.cfg);
+      ok = Boolean(sup && sup.supported);
+    } catch (_) { ok = false; }
+    hqSupCache.set(meta.sig, ok);
+  }
+  if (!ok) { fallbackToMobAtlas(); return false; }
+  if (!hqDecoder || hqDecoder.state === 'closed') {
+    hqDecoder = new VideoDecoder({
+      output(vf) {
+        const k = Math.round(vf.timestamp / 1000);
+        hqDecoding.delete(k);
+        if (hqWatchdog && hqDecoding.size === 0) { clearTimeout(hqWatchdog); hqWatchdog = null; }
+        if (hqFailed) { try { vf.close(); } catch (_) {} return; }
+        storeHqFrame(k, vf);
+        mobRedrawNow = true;
+        pumpHqDecode();
+      },
+      error() { fallbackToMobAtlas(); }
+    });
+    hqConfiguredSig = '';
+  }
+  if (!hqConfiguredSig && hqTracks[hqWantedKey >= 1000 ? 2 : 1]?.meta?.sig === meta.sig) {
+    hqDecoding.clear();
+    hqDecoder.configure(meta.cfg);
+    hqConfiguredSig = meta.sig;
+  }
+  return true;
+}
+
+function pumpHqDecode() {
+  if (hqFailed || !hqActive || !hqDecoder || hqDecoder.state === 'closed') return;
+  const stage = hqWantedKey >= 1000 ? 2 : 1;
+  const tr = hqTracks[stage];
+  if (!tr || !tr.meta) return;
+  if (hqConfiguredSig !== tr.meta.sig) {
+    if (!hqSupCache.get(tr.meta.sig)) return;
+    hqDecoding.clear();
+    hqDecoder.configure(tr.meta.cfg);
+    hqConfiguredSig = tr.meta.sig;
+  }
+  if (hqDecoder.state !== 'configured') return;
+  const meta = tr.meta;
+  const base = stage === 1 ? 0 : 1000;
+  const curIdx = hqWantedKey - base;
+  const offsets = [0, 1, -1, 2, 3, -2];
+
+  for (let i = 0; i < offsets.length; i++) {
+    const idx = curIdx + offsets[i];
+    if (idx < 0 || idx >= meta.count) continue;
+    const key = base + idx;
+    if (hqFrames.has(key) || hqDecoding.has(key)) continue;
+    if (meta.offsets[idx] + meta.sizes[idx] > tr.bytesReady) continue;
+
+    // Prioritize wanted frame strictly; prefetch neighbors only when decoder idle
+    if (i === 0) {
+      if (hqDecoding.size >= 2) break;
+    } else {
+      if (hqDecoding.size > 0 || hqDecoder.decodeQueueSize > 0) break;
+    }
+
+    hqDecoding.add(key);
+    const off = meta.offsets[idx], sz = meta.sizes[idx];
+    try {
+      hqDecoder.decode(new EncodedVideoChunk({
+        type: 'key',
+        timestamp: key * 1000,
+        data: tr.u8.subarray(off, off + sz)
+      }));
+      if (hqWatchdog) clearTimeout(hqWatchdog);
+      hqWatchdog = setTimeout(() => {
+        hqWatchdog = null;
+        if (!hqFailed && hqDecoder && hqDecoder.state === 'configured' && hqDecoding.size > 0) {
+          hqDecoder.flush().catch(() => {});
+        }
+      }, 18);
+    } catch (_) {
+      hqDecoding.delete(key);
+      fallbackToMobAtlas();
+      return;
+    }
+    if (i === 0) break;
+  }
+}
+
+async function loadMobHqStage(stage) {
+  if (hqFailed || !hqActive || hqTracks[stage]) return;
+  const tr = { stage, u8: null, bytesReady: 0, complete: false, meta: null };
+  hqTracks[stage] = tr;
+
+  const file = stage === 1 ? 'stage1_mob.mp4' : 'stage2_mob.mp4';
+  const localUrl = 'video/' + file + '?v=8';
+  const cdnUrl = MOB_HQ_CDN + file;
+  const isGitHubPages = /\.github\.io$/i.test(location.hostname);
+  const cacheKey = new Request(location.origin + '/video/' + file);
+
+  if ('caches' in window) {
+    try {
+      const cache = await caches.open(MOB_HQ_CACHE);
+      const hit = await cache.match(cacheKey);
+      if (hit) {
+        const buf = await hit.arrayBuffer();
+        if (buf && buf.byteLength > 200000) {
+          tr.u8 = new Uint8Array(buf);
+          tr.bytesReady = tr.u8.byteLength;
+          tr.complete = true;
+          tr.meta = parseMp4MoovPrefix(tr.u8, tr.bytesReady);
+          if (tr.meta) {
+            await ensureHqDecoder(tr.meta);
+            mobRedrawNow = true;
+            pumpHqDecode();
+            if (stage === 1) loadMobHqStage(2);
+            return;
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  const urls = isGitHubPages ? [cdnUrl, localUrl] : [localUrl];
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { mode: url.startsWith('http') ? 'cors' : 'same-origin' });
+      if (!res.ok) continue;
+
+      if (res.body && typeof res.body.getReader === 'function') {
+        const total = Number(res.headers.get('content-length') || 0);
+        let buf = total > 0 ? new Uint8Array(total) : new Uint8Array(2 * 1024 * 1024);
+        let loaded = 0;
+        tr.u8 = buf;
+        const reader = res.body.getReader();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!value || !value.byteLength) continue;
+          if (loaded + value.byteLength > buf.byteLength) {
+            const grown = new Uint8Array(Math.max(buf.byteLength * 2, loaded + value.byteLength));
+            grown.set(buf.subarray(0, loaded));
+            buf = grown;
+            tr.u8 = buf;
+          }
+          buf.set(value, loaded);
+          loaded += value.byteLength;
+          tr.bytesReady = loaded;
+
+          if (!tr.meta && loaded >= 4096) {
+            tr.meta = parseMp4MoovPrefix(buf, loaded);
+            if (tr.meta) await ensureHqDecoder(tr.meta);
+          }
+          if (tr.meta && stage === (hqWantedKey >= 1000 ? 2 : 1)) {
+            mobRedrawNow = true;
+            pumpHqDecode();
+          }
+        }
+        if (loaded !== buf.byteLength) tr.u8 = buf.slice(0, loaded);
+        tr.bytesReady = loaded;
+      } else {
+        const ab = await res.arrayBuffer();
+        tr.u8 = new Uint8Array(ab);
+        tr.bytesReady = tr.u8.byteLength;
+        tr.meta = parseMp4MoovPrefix(tr.u8, tr.bytesReady);
+        if (tr.meta) await ensureHqDecoder(tr.meta);
+      }
+
+      if (!tr.meta || tr.bytesReady < 200000) continue;
+      tr.complete = true;
+      mobRedrawNow = true;
+      pumpHqDecode();
+
+      if ('caches' in window) {
+        try {
+          const cache = await caches.open(MOB_HQ_CACHE);
+          cache.put(cacheKey, new Response(tr.u8, { headers: { 'Content-Type': 'video/mp4' } })).catch(() => {});
+        } catch (_) {}
+      }
+      if (stage === 1) loadMobHqStage(2);
+      return;
+    } catch (_) {}
+  }
+
+  if (stage === 1 && (!tr.meta || !mobFirstPainted)) fallbackToMobAtlas();
+}
+
+function drawHqFrame(stage, time) {
+  if (!hqTracks[stage]) loadMobHqStage(stage);
+  const idx = stage === 1
+    ? Math.max(0, Math.min(MOB_S1_MAX_FRAME, Math.round(time * MOB_S1_FPS)))
+    : Math.max(0, Math.min(MOB_S2_MAX_FRAME, Math.round(time * MOB_S2_FPS)));
+  const key = (stage === 1 ? 0 : 1000) + idx;
+
+  if (key !== hqWantedKey) {
+    hqWantedKey = key;
+    pumpHqDecode();
+  } else if (!hqFrames.has(key)) {
+    pumpHqDecode();
+  }
+
+  if (!mobRedrawNow && key === hqLastDrawnKey && window.__mobStats.draws > 0) return;
+
+  const vf = hqFrames.get(key);
+  if (!vf) {
+    window.__mobStats.misses++;
+    return;
+  }
+
+  const t0 = performance.now();
+  drawMobCoverSource(vf, 0, 0, vf.displayWidth || 1280, vf.displayHeight || 720);
+  const drawMs = performance.now() - t0;
+
+  hqLastDrawnKey = key;
+  hqLastDrawnStage = stage;
+  mobRedrawNow = false;
+  const st = window.__mobStats;
+  st.draws++;
+  st.lastFrame = idx;
+  st.lastSheet = -1;
+  st.lastStage = stage;
+  st.lastDrawMs = +drawMs.toFixed(3);
+  if (drawMs > st.maxDrawMs) st.maxDrawMs = st.lastDrawMs;
+  markMobFirstPaint();
+  pumpHqDecode();
+}
+
+function initMobEngine(onFirstReady) {
+  if (onFirstReady && !mobFirstPainted) mobFirstCb = onFirstReady;
+  if (!MOB_CTX || !MOB_CVS) return;
+  mobInitialized = true;
+  resizeMobCanvas();
+  if (HQ_SUPPORTED && !hqFailed) {
+    hqActive = true;
+    loadMobHqStage(1);
+  } else {
+    initMobAtlas(onFirstReady);
+  }
+}
+
+function mobRenderAtTime(stage, time) {
+  if (!MOB_CTX || !MOB_CVS) return;
+  resizeMobCanvas();
+  if (hqActive && !hqFailed) drawHqFrame(stage, time);
+  else drawMobAtlasFrame(stage, time);
 }
 
 renderPlatformReady = true;
@@ -1327,7 +1725,7 @@ function syncRenderPlatform() {
       if (V1) V1.style.display = 'none';
       if (V2) V2.style.display = 'none';
     }
-    if (!mobInitialized) initMobAtlas();
+    if (!mobInitialized) initMobEngine();
   } else {
     MOB_CVS.style.display = 'none';
     MOB_CVS.style.opacity = '0';
@@ -1515,7 +1913,7 @@ function startDesktopVideos(onPct, onReady){
     if (V1) V1.preload = 'none';
     if (V2) V2.preload = 'none';
     syncRenderPlatform();
-    initMobAtlas(() => {
+    initMobEngine(() => {
       if (pc) pc.textContent = '100';
       hide();
     });
